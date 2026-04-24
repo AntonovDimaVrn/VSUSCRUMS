@@ -1,5 +1,15 @@
-import { Outlet, Link, useLocation } from "react-router";
-import { LayoutDashboard, Upload, Users, Calendar, Lightbulb, ChevronDown, FolderKanban } from "lucide-react";
+import { Outlet, Link, useLocation, useNavigate } from "react-router";
+import {
+  LayoutDashboard,
+  Upload,
+  Users,
+  Calendar,
+  Lightbulb,
+  ChevronDown,
+  FolderKanban,
+  LogOut,
+} from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 import { useProjects } from "../context/ProjectsContext";
 import {
   DropdownMenu,
@@ -12,6 +22,8 @@ import {
 
 export function RootLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { logout } = useAuth();
   const { projects, selectedProject, selectProject } = useProjects();
 
   const navItems = [
@@ -25,6 +37,11 @@ export function RootLayout() {
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
     return location.pathname.startsWith(path);
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate("/");
   };
 
   return (
@@ -62,16 +79,28 @@ export function RootLayout() {
 
         {/* User Section */}
         <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 cursor-pointer">
-            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-              <span className="text-sm font-medium text-blue-700">AM</span>
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-900">Аналитик</p>
-              <p className="text-xs text-gray-500">analyst@team.com</p>
-            </div>
-            <ChevronDown size={16} className="text-gray-400" />
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-gray-100 cursor-pointer">
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                  <span className="text-sm font-medium text-blue-700">AM</span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900">Аналитик</p>
+                  <p className="text-xs text-gray-500">analyst@team.com</p>
+                </div>
+                <ChevronDown size={16} className="text-gray-400" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="top" className="w-56">
+              <DropdownMenuLabel>Профиль</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={handleLogout} className="text-red-600 focus:text-red-700">
+                <LogOut size={16} />
+                Выйти
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </aside>
 
