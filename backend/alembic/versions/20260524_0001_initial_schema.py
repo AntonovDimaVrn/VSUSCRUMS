@@ -30,13 +30,6 @@ def upgrade() -> None:
     upload_status_enum = sa.Enum("pending", "processed", "failed", name="uploadstatus")
     user_role_enum = sa.Enum("admin", "analyst", name="userrole")
 
-    bind = op.get_bind()
-    qualification_enum.create(bind, checkfirst=True)
-    complexity_enum.create(bind, checkfirst=True)
-    task_status_enum.create(bind, checkfirst=True)
-    upload_status_enum.create(bind, checkfirst=True)
-    user_role_enum.create(bind, checkfirst=True)
-
     op.create_table(
         "users",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -134,20 +127,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    qualification_enum = sa.Enum(
-        "junior",
-        "middle",
-        "senior",
-        "analyst",
-        "pm",
-        name="qualificationlevel",
-    )
-    complexity_enum = sa.Enum("S", "M", "L", "XL", name="complexityclass")
-    task_status_enum = sa.Enum("completed", "in_progress", "blocked", name="taskstatus")
-    upload_status_enum = sa.Enum("pending", "processed", "failed", name="uploadstatus")
-    user_role_enum = sa.Enum("admin", "analyst", name="userrole")
-
     op.drop_index("ix_task_assignments_task_id", table_name="task_assignments")
     op.drop_table("task_assignments")
     op.drop_index("ix_tasks_sprint_id", table_name="tasks")
@@ -161,9 +140,3 @@ def downgrade() -> None:
     op.drop_table("project_members")
     op.drop_table("projects")
     op.drop_table("users")
-
-    qualification_enum.drop(bind, checkfirst=True)
-    complexity_enum.drop(bind, checkfirst=True)
-    task_status_enum.drop(bind, checkfirst=True)
-    upload_status_enum.drop(bind, checkfirst=True)
-    user_role_enum.drop(bind, checkfirst=True)
