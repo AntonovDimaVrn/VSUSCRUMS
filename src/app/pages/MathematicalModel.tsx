@@ -1,19 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   BackendApiError,
   createProjectModelVersion,
   ensureBackendProjectId,
   getProjectModel,
+  getProjectTaskDetails,
   listProjectModelHistory,
   restoreProjectModelVersion,
   type BackendModelConfigVersion,
   type BackendModelHistoryItem,
+  type BackendTaskDetails,
 } from "../api/backend";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { useProjects } from "../context/ProjectsContext";
+import {
+  buildFormulaPreviewContext,
+  evaluateFormulaPreview,
+  formulaDefinitions,
+  formulaFunctionTokens,
+  formulaOperatorTokens,
+  formulaVariableDefinitions,
+  formatPreviewValue,
+  getReferencedVariableTokens,
+  getUnknownFormulaTokens,
+  type FormulaKey,
+} from "../model/formulaWorkbench";
 
 const coefficientLabels: Record<string, string> = {
   junior: "alpha(junior)",
@@ -27,28 +41,66 @@ const coefficientLabels: Record<string, string> = {
   XL: "w(XL)",
 };
 
-const formulaLabels: Record<string, string> = {
-  weighted_qualification: "Q_i",
-  communication_factor: "f(M_i)",
-  optimal_time: "Topt_i",
-  efficiency_index: "EI_i",
-  deviation_percent: "δ_i",
-  on_time_probability: "P(Tfact ≤ Tplan)",
-  backlog_completion_index: "BCI_sprint",
-  sprint_efficiency_index: "EI_sprint",
-};
-
 export function MathematicalModel() {
   const { selectedProject, linkProjectToBackend } = useProjects();
+  const formulaTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
   const [backendProjectId, setBackendProjectId] = useState<number | null>(selectedProject?.backendId ?? null);
   const [model, setModel] = useState<BackendModelConfigVersion | null>(null);
   const [history, setHistory] = useState<BackendModelHistoryItem[]>([]);
+  const [taskDetails, setTaskDetails] = useState<BackendTaskDetails | null>(null);
   const [draft, setDraft] = useState<BackendModelConfigVersion | null>(null);
   const [changeNote, setChangeNote] = useState("");
+  const [selectedFormulaKey, setSelectedFormulaKey] = useState<FormulaKey | "">("");
+  const [selectedPreviewTaskId, setSelectedPreviewTaskId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  const orderedAlphaKeys = useMemo(
+    () => Object.keys(draft?.alpha_scale ?? {}),
+    [draft?.alpha_scale],
+  );
+
+  const orderedWorkNormKeys = useMemo(
+    () => Object.keys(draft?.work_norms ?? {}),
+    [draft?.work_norms],
+  );
+
+  const orderedFormulaKeys = useMemo(
+    () => Object.keys(draft?.formulas ?? {}) as FormulaKey[],
+    [draft?.formulas],
+  );
+
+  useEffect(() => {
+    if (orderedFormulaKeys.length === 0) {
+      setSelectedFormulaKey("");
+      return;
+    }
+
+    setSelectedFormulaKey((current) => {
+      if (current && orderedFormulaKeys.includes(current)) {
+        return current;
+      }
+      return orderedFormulaKeys[0];
+    });
+  }, [orderedFormulaKeys]);
+
+  useEffect(() => {
+    const previewTasks = taskDetails?.tasks ?? [];
+    if (previewTasks.length === 0) {
+      setSelectedPreviewTaskId("");
+      return;
+    }
+
+    setSelectedPreviewTaskId((current) => {
+      if (current && previewTasks.some((task) => task.id === current)) {
+        return current;
+      }
+      return previewTasks[0]?.id ?? "";
+    });
+  }, [taskDetails?.tasks]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -66,18 +118,9 @@ export function MathematicalModel() {
       try {
         const ensuredProjectId = await ensureBackendProjectId(selectedProject, linkProjectToBackend);
         if (isCancelled) return;
+
         setBackendProjectId(ensuredProjectId);
-
-        const [activeModel, historyItems] = await Promise.all([
-          getProjectModel(ensuredProjectId),
-          listProjectModelHistory(ensuredProjectId),
-        ]);
-
-        if (isCancelled) return;
-
-        setModel(activeModel);
-        setDraft(activeModel);
-        setHistory(historyItems);
+        await refreshWorkspace(ensuredProjectId, isCancelled);
       } catch (nextError) {
         if (!isCancelled) {
           setError(
@@ -93,6 +136,23 @@ export function MathematicalModel() {
       }
     };
 
+    const refreshWorkspace = async (projectId: number, cancelled = false) => {
+      const [activeModel, historyItems, taskPayload] = await Promise.all([
+        getProjectModel(projectId),
+        listProjectModelHistory(projectId),
+        getProjectTaskDetails(projectId),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      setModel(activeModel);
+      setDraft(activeModel);
+      setHistory(historyItems);
+      setTaskDetails(taskPayload);
+    };
+
     void load();
 
     return () => {
@@ -100,20 +160,41 @@ export function MathematicalModel() {
     };
   }, [linkProjectToBackend, selectedProject]);
 
-  const orderedAlphaKeys = useMemo(
-    () => Object.keys(draft?.alpha_scale ?? {}),
-    [draft?.alpha_scale],
+  const activeFormulaKey = selectedFormulaKey || orderedFormulaKeys[0] || null;
+  const activeFormulaDefinition = activeFormulaKey ? formulaDefinitions[activeFormulaKey] : null;
+  const activeFormulaExpression = activeFormulaKey && draft ? draft.formulas[activeFormulaKey] : "";
+
+  const previewTask = useMemo(
+    () => (taskDetails?.tasks ?? []).find((task) => task.id === selectedPreviewTaskId) ?? null,
+    [selectedPreviewTaskId, taskDetails?.tasks],
   );
 
-  const orderedWorkNormKeys = useMemo(
-    () => Object.keys(draft?.work_norms ?? {}),
-    [draft?.work_norms],
+  const previewContext = useMemo(
+    () => buildFormulaPreviewContext(previewTask, taskDetails?.tasks ?? []),
+    [previewTask, taskDetails?.tasks],
   );
 
-  const orderedFormulaKeys = useMemo(
-    () => Object.keys(draft?.formulas ?? {}),
-    [draft?.formulas],
+  const referencedVariableTokens = useMemo(
+    () => getReferencedVariableTokens(activeFormulaExpression),
+    [activeFormulaExpression],
   );
+
+  const helperVariableTokens = useMemo(() => {
+    const orderedTokens = activeFormulaDefinition?.variableTokens ?? [];
+    return Array.from(new Set([...orderedTokens, ...referencedVariableTokens]));
+  }, [activeFormulaDefinition?.variableTokens, referencedVariableTokens]);
+
+  const unknownTokens = useMemo(
+    () => getUnknownFormulaTokens(activeFormulaExpression),
+    [activeFormulaExpression],
+  );
+
+  const previewResult = useMemo(() => {
+    if (!previewContext || !activeFormulaExpression) {
+      return { result: null, error: "" };
+    }
+    return evaluateFormulaPreview(activeFormulaExpression, previewContext);
+  }, [activeFormulaExpression, previewContext]);
 
   const handleAlphaChange = (key: string, value: string) => {
     if (!draft) return;
@@ -137,7 +218,7 @@ export function MathematicalModel() {
     });
   };
 
-  const handleFormulaChange = (key: string, value: string) => {
+  const handleFormulaChange = (key: FormulaKey, value: string) => {
     if (!draft) return;
     setDraft({
       ...draft,
@@ -148,14 +229,39 @@ export function MathematicalModel() {
     });
   };
 
-  const refreshModel = async (projectId: number) => {
-    const [activeModel, historyItems] = await Promise.all([
+  const refreshWorkspace = async (projectId: number) => {
+    const [activeModel, historyItems, taskPayload] = await Promise.all([
       getProjectModel(projectId),
       listProjectModelHistory(projectId),
+      getProjectTaskDetails(projectId),
     ]);
     setModel(activeModel);
     setDraft(activeModel);
     setHistory(historyItems);
+    setTaskDetails(taskPayload);
+  };
+
+  const insertIntoFormula = (snippet: string, cursorOffset = 0) => {
+    if (!draft || !activeFormulaKey) return;
+
+    const currentValue = draft.formulas[activeFormulaKey];
+    const textarea = formulaTextareaRef.current;
+    if (!textarea) {
+      handleFormulaChange(activeFormulaKey, `${currentValue}${snippet}`);
+      return;
+    }
+
+    const start = textarea.selectionStart ?? currentValue.length;
+    const end = textarea.selectionEnd ?? currentValue.length;
+    const nextValue = `${currentValue.slice(0, start)}${snippet}${currentValue.slice(end)}`;
+    const nextCursor = start + snippet.length + cursorOffset;
+
+    handleFormulaChange(activeFormulaKey, nextValue);
+
+    requestAnimationFrame(() => {
+      formulaTextareaRef.current?.focus();
+      formulaTextareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
   };
 
   const handleSave = async () => {
@@ -173,7 +279,7 @@ export function MathematicalModel() {
         formulas: draft.formulas,
         change_note: changeNote.trim() || "Обновление математической модели проекта.",
       });
-      await refreshModel(backendProjectId);
+      await refreshWorkspace(backendProjectId);
       window.dispatchEvent(
         new CustomEvent("project-analytics-refresh", {
           detail: { projectId: selectedProject?.id },
@@ -201,7 +307,7 @@ export function MathematicalModel() {
 
     try {
       await restoreProjectModelVersion(backendProjectId, versionId);
-      await refreshModel(backendProjectId);
+      await refreshWorkspace(backendProjectId);
       window.dispatchEvent(
         new CustomEvent("project-analytics-refresh", {
           detail: { projectId: selectedProject?.id },
@@ -241,7 +347,8 @@ export function MathematicalModel() {
         <h2 className="text-2xl font-semibold text-gray-900">Математическая модель</h2>
         <p className="mt-1 text-sm text-gray-500">
           Настраивайте формулы и коэффициенты проекта {selectedProject.name}. Каждое сохранение
-          создаёт новую версию и сразу влияет на расчёт метрик после загрузки данных.
+          создаёт новую версию, попадает в историю и сразу влияет на расчёт метрик после загрузки
+          данных.
         </p>
       </div>
 
@@ -319,22 +426,258 @@ export function MathematicalModel() {
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white p-6">
-            <h3 className="text-lg font-semibold text-gray-900">Редактируемые формулы</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              Эти выражения backend использует напрямую при расчёте метрик проекта.
-            </p>
-            <div className="mt-5 space-y-5">
-              {orderedFormulaKeys.map((key) => (
-                <div key={key} className="space-y-2">
-                  <Label htmlFor={`formula-${key}`}>{formulaLabels[key] ?? key}</Label>
-                  <Textarea
-                    id={`formula-${key}`}
-                    value={draft.formulas[key]}
-                    onChange={(event) => handleFormulaChange(key, event.target.value)}
-                    className="min-h-20 font-mono text-sm"
-                  />
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Конструктор формул</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Backend использует эти выражения напрямую. Ниже можно посмотреть допустимые
+                переменные, вставить их в формулу и увидеть живой preview на реальной задаче.
+              </p>
+            </div>
+
+            <div className="mt-5 grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+              <div className="space-y-3">
+                {orderedFormulaKeys.map((key) => {
+                  const definition = formulaDefinitions[key];
+                  const isActive = key === activeFormulaKey;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSelectedFormulaKey(key)}
+                      className={`w-full rounded-xl border px-4 py-4 text-left transition-colors ${
+                        isActive
+                          ? "border-blue-200 bg-blue-50"
+                          : "border-gray-200 bg-white hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-gray-900">
+                            {definition.symbol}
+                          </div>
+                          <div className="mt-1 text-sm text-gray-700">{definition.label}</div>
+                        </div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            definition.scope === "task"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-violet-100 text-violet-800"
+                          }`}
+                        >
+                          {definition.scope === "task" ? "по задаче" : "по спринту"}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">{definition.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {activeFormulaDefinition && activeFormulaKey ? (
+                <div className="space-y-6 rounded-2xl border border-gray-200 bg-gray-50/60 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <h4 className="text-xl font-semibold text-gray-900">
+                          {activeFormulaDefinition.symbol}
+                        </h4>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            activeFormulaDefinition.scope === "task"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-violet-100 text-violet-800"
+                          }`}
+                        >
+                          {activeFormulaDefinition.scope === "task"
+                            ? "Расчёт по задаче"
+                            : "Расчёт по спринту"}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-gray-700">{activeFormulaDefinition.description}</p>
+                      <p className="mt-1 text-xs text-gray-500">{activeFormulaDefinition.helperText}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor={`formula-${activeFormulaKey}`}>Формула</Label>
+                    <Textarea
+                      ref={formulaTextareaRef}
+                      id={`formula-${activeFormulaKey}`}
+                      value={activeFormulaExpression}
+                      onChange={(event) => handleFormulaChange(activeFormulaKey, event.target.value)}
+                      className="min-h-28 bg-white font-mono text-sm"
+                    />
+                  </div>
+
+                  {unknownTokens.length > 0 && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                      В формуле есть неизвестные идентификаторы: {unknownTokens.join(", ")}.
+                    </div>
+                  )}
+
+                  <div className="grid gap-6 lg:grid-cols-2">
+                    <div className="space-y-5">
+                      <TokenSection title="Переменные" description="Нажми, чтобы вставить переменную в текущую позицию курсора.">
+                        <div className="flex flex-wrap gap-2">
+                          {helperVariableTokens.map((token) => (
+                            <TokenButton
+                              key={token}
+                              label={token}
+                              onClick={() => insertIntoFormula(token)}
+                            />
+                          ))}
+                        </div>
+                      </TokenSection>
+
+                      <TokenSection title="Операторы" description="Базовые математические операции для сборки выражения.">
+                        <div className="flex flex-wrap gap-2">
+                          {formulaOperatorTokens.map((token) => (
+                            <TokenButton
+                              key={token.label}
+                              label={token.label}
+                              onClick={() => insertIntoFormula(token.value)}
+                            />
+                          ))}
+                        </div>
+                      </TokenSection>
+
+                      <TokenSection title="Функции" description="Разрешённые функции preview и backend-движка.">
+                        <div className="flex flex-wrap gap-2">
+                          {formulaFunctionTokens.map((token) => (
+                            <TokenButton
+                              key={token.label}
+                              label={token.label}
+                              onClick={() => insertIntoFormula(token.value, token.cursorOffset)}
+                            />
+                          ))}
+                        </div>
+                      </TokenSection>
+                    </div>
+
+                    <div className="space-y-5">
+                      <div className="rounded-xl border border-gray-200 bg-white p-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <h5 className="text-sm font-semibold text-gray-900">Живой preview</h5>
+                            <p className="mt-1 text-xs text-gray-500">
+                              Подстановка идёт по реальной задаче проекта.
+                            </p>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <select
+                              value={selectedPreviewTaskId}
+                              onChange={(event) => setSelectedPreviewTaskId(event.target.value)}
+                              className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                              disabled={!taskDetails?.tasks.length}
+                            >
+                              {(taskDetails?.tasks ?? []).map((task) => (
+                                <option key={task.id} value={task.id}>
+                                  {task.id} · {task.sprintName}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {previewTask && previewContext ? (
+                          <div className="mt-4 space-y-4">
+                            <div className="rounded-xl bg-gray-50 p-4">
+                              <div className="text-sm font-medium text-gray-900">
+                                {previewTask.id} · {previewTask.title}
+                              </div>
+                              <div className="mt-1 text-xs text-gray-500">
+                                {previewTask.sprintName} · {previewTask.storyPoints} SP · статус {previewTask.status}
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                              <div className="text-xs font-medium uppercase tracking-wide text-blue-700">
+                                Результат preview
+                              </div>
+                              {previewResult.error ? (
+                                <p className="mt-2 text-sm text-red-700">{previewResult.error}</p>
+                              ) : (
+                                <p className="mt-2 text-2xl font-semibold text-blue-900">
+                                  {previewResult.result === null
+                                    ? "Нет данных"
+                                    : formatPreviewValue(previewResult.result)}
+                                </p>
+                              )}
+                            </div>
+
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">Подставленные значения</div>
+                              <div className="mt-3 space-y-2">
+                                {helperVariableTokens.map((token) => {
+                                  const definition = formulaVariableDefinitions[token];
+                                  const value = previewContext[token];
+                                  return (
+                                    <div
+                                      key={token}
+                                      className="rounded-lg border border-gray-200 bg-white p-3"
+                                    >
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-sm font-medium text-gray-900">{token}</div>
+                                        {value !== undefined && (
+                                          <div className="font-mono text-xs text-blue-700">
+                                            {formatPreviewValue(value)}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="mt-1 text-xs text-gray-500">
+                                        {definition?.description ?? "Переменная используется в текущей формуле."}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                            Живой preview появится после загрузки Excel-данных в проект.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-200 bg-white p-4">
+                    <h5 className="text-sm font-semibold text-gray-900">Справочник переменных</h5>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Здесь видно, какие переменные допустимы именно для выбранной формулы.
+                    </p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {helperVariableTokens.map((token) => {
+                        const definition = formulaVariableDefinitions[token];
+                        return (
+                          <button
+                            key={token}
+                            type="button"
+                            onClick={() => insertIntoFormula(token)}
+                            className="rounded-xl border border-gray-200 bg-white p-4 text-left transition-colors hover:bg-gray-50"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="font-mono text-sm font-semibold text-gray-900">{token}</div>
+                              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-600">
+                                {definition?.scope === "sprint"
+                                  ? "sprint"
+                                  : definition?.scope === "shared"
+                                  ? "shared"
+                                  : "task"}
+                              </span>
+                            </div>
+                            <div className="mt-2 text-sm text-gray-800">{definition?.label ?? token}</div>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {definition?.description ?? "Описание переменной пока не задано."}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              ))}
+              ) : null}
             </div>
           </div>
 
@@ -353,9 +696,7 @@ export function MathematicalModel() {
               <Button onClick={handleSave} disabled={isSaving} className="bg-blue-600 hover:bg-blue-700">
                 {isSaving ? "Сохраняем..." : "Сохранить новую версию"}
               </Button>
-              <span className="text-sm text-gray-500">
-                Активна версия #{model.version_number}
-              </span>
+              <span className="text-sm text-gray-500">Активна версия #{model.version_number}</span>
             </div>
           </div>
         </div>
@@ -367,6 +708,7 @@ export function MathematicalModel() {
               <p>Версия: #{model.version_number}</p>
               <p>Создана: {new Date(model.created_at).toLocaleString("ru-RU")}</p>
               <p>Комментарий: {model.change_note || "Без комментария"}</p>
+              <p>Проект: {selectedProject.name}</p>
             </div>
           </div>
 
@@ -380,15 +722,11 @@ export function MathematicalModel() {
                 <div key={item.id} className="rounded-xl border border-gray-200 p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="space-y-1">
-                      <div className="text-sm font-medium text-gray-900">
-                        Версия #{item.version_number}
-                      </div>
+                      <div className="text-sm font-medium text-gray-900">Версия #{item.version_number}</div>
                       <div className="text-xs text-gray-500">
                         {new Date(item.created_at).toLocaleString("ru-RU")}
                       </div>
-                      <div className="text-sm text-gray-600">
-                        {item.change_note || "Без комментария"}
-                      </div>
+                      <div className="text-sm text-gray-600">{item.change_note || "Без комментария"}</div>
                     </div>
                     {item.is_active ? (
                       <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
@@ -411,5 +749,41 @@ export function MathematicalModel() {
         </div>
       </div>
     </div>
+  );
+}
+
+function TokenSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="text-sm font-semibold text-gray-900">{title}</div>
+      <p className="mt-1 text-xs text-gray-500">{description}</p>
+      <div className="mt-3">{children}</div>
+    </div>
+  );
+}
+
+function TokenButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-full border border-gray-300 bg-white px-3 py-1.5 font-mono text-xs text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+    >
+      {label}
+    </button>
   );
 }
