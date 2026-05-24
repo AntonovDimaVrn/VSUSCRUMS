@@ -13,7 +13,7 @@ from app.schemas.model_config import (
 )
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.upload import ImportResult, ImportTemplateSpec, UploadRead
-from app.services.analytics import build_project_analytics
+from app.services.analytics import build_project_analytics, build_project_task_details
 from app.services.excel_import import (
     ExcelImportError,
     TEMPLATE_FILE_PATH,
@@ -107,6 +107,14 @@ def get_project_analytics(project_id: int, db: Session = Depends(get_db)) -> dic
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
     return build_project_analytics(db, project)
+
+
+@router.get("/{project_id}/analytics/tasks")
+def get_project_task_details(project_id: int, db: Session = Depends(get_db)) -> dict:
+    project = project_repository.get(db, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+    return build_project_task_details(db, project)
 
 
 @router.get("/{project_id}/model", response_model=ModelConfigVersionRead)

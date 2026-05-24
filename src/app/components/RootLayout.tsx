@@ -5,6 +5,7 @@ import {
   Users,
   Calendar,
   Lightbulb,
+  ListTodo,
   Sigma,
   ChevronDown,
   FolderKanban,
@@ -33,6 +34,7 @@ export function RootLayout() {
     { path: "/team", icon: Users, label: "Анализ команды" },
     { path: "/sprint", icon: Calendar, label: "Анализ спринта" },
     { path: "/recommendations", icon: Lightbulb, label: "Рекомендации" },
+    { path: "/tasks", icon: ListTodo, label: "Детализация задач" },
     { path: "/model", icon: Sigma, label: "Математическая модель" },
   ];
 

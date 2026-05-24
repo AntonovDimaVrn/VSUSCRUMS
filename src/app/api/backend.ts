@@ -189,6 +189,42 @@ export type BackendModelHistoryItem = {
   created_at: string;
 };
 
+export type BackendTaskDetails = {
+  hasData: boolean;
+  projectName: string;
+  modelVersionNumber: number;
+  formulas: Record<string, string>;
+  tasks: Array<
+    BackendModeledTask & {
+      modelDetails: {
+        versionNumber: number;
+        inputs: {
+          storyPoints: number;
+          complexityClass: string;
+          plannedHours: number;
+          actualHours: number;
+          participantCount: number;
+          totalParticipantHours: number;
+          weightedAlphaHours: number;
+          workNorm: number;
+          beta: number;
+          logNormalMu: number;
+          logNormalSigma: number;
+        };
+        outputs: {
+          weightedQualification: number;
+          communicationFactor: number;
+          optimalHours: number;
+          efficiencyIndex: number;
+          deviationPercent: number;
+          onTimeProbability: number;
+        };
+        formulas: Record<string, string>;
+      };
+    }
+  >;
+};
+
 const API_BASE_URL =
   import.meta.env.VITE_BACKEND_API_URL?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
 
@@ -261,6 +297,10 @@ export function listProjectUploads(projectId: number) {
 
 export function getProjectAnalytics(projectId: number) {
   return apiRequest<BackendAnalytics>(`/projects/${projectId}/analytics`);
+}
+
+export function getProjectTaskDetails(projectId: number) {
+  return apiRequest<BackendTaskDetails>(`/projects/${projectId}/analytics/tasks`);
 }
 
 export function getProjectModel(projectId: number) {

@@ -50,6 +50,7 @@ class ModeledTask:
     participants: list[ModeledParticipant]
     has_junior_contributor: bool
     external_dependency: bool
+    model_details: dict
 
 
 def round_to(value: float, digits: int = 2) -> float:
@@ -222,26 +223,21 @@ def solve_regression_coefficients(features: list[list[float]], target: list[floa
 
 
 def build_project_analytics(db: Session, project: Project) -> dict:
-    active_model = get_or_create_active_model_version(db, project)
-    tasks = _load_project_tasks(db, project.id)
-    sprints = _load_project_sprints(db, project.id)
-    project_members = _load_project_members(db, project.id)
+    context = prepare_project_analytics_context(db, project)
+    active_model = context["active_model"]
+    tasks = context["tasks"]
+    sprints = context["sprints"]
+    project_members = context["project_members"]
 
     if not tasks or not sprints:
         return _empty_analytics(project, active_model)
 
-    alpha_scale = {key: float(value) for key, value in active_model.alpha_scale.items()}
-    beta = float(active_model.beta)
-    work_norms = {key: float(value) for key, value in active_model.work_norms.items()}
-    formulas = {**DEFAULT_FORMULAS, **active_model.formulas}
-
-    sprint_by_id = {sprint.id: sprint for sprint in sprints}
-    log_normal_params = derive_log_normal_params(tasks)
-
-    modeled_tasks = [
-        build_modeled_task(task, sprint_by_id, alpha_scale, beta, work_norms, formulas, log_normal_params)
-        for task in tasks
-    ]
+    alpha_scale = context["alpha_scale"]
+    beta = context["beta"]
+    work_norms = context["work_norms"]
+    formulas = context["formulas"]
+    log_normal_params = context["log_normal_params"]
+    modeled_tasks = context["modeled_tasks"]
 
     regression = derive_regression(modeled_tasks)
     sprint_series = build_sprint_series(modeled_tasks, sprints, formulas)
@@ -395,6 +391,63 @@ def build_project_analytics(db: Session, project: Project) -> dict:
             "qualification",
             "participant_hours",
         ],
+    }
+
+
+def build_project_task_details(db: Session, project: Project) -> dict:
+    context = prepare_project_analytics_context(db, project)
+    active_model = context["active_model"]
+    tasks = context["tasks"]
+    sprints = context["sprints"]
+    if not tasks or not sprints:
+        return {
+            "hasData": False,
+            "projectName": project.name,
+            "modelVersionNumber": active_model.version_number,
+            "formulas": active_model.formulas,
+            "tasks": [],
+        }
+
+    modeled_tasks: list[ModeledTask] = context["modeled_tasks"]
+    return {
+        "hasData": True,
+        "projectName": project.name,
+        "modelVersionNumber": active_model.version_number,
+        "formulas": context["formulas"],
+        "tasks": [serialize_modeled_task(task, include_model_details=True) for task in modeled_tasks],
+    }
+
+
+def prepare_project_analytics_context(db: Session, project: Project) -> dict:
+    active_model = get_or_create_active_model_version(db, project)
+    tasks = _load_project_tasks(db, project.id)
+    sprints = _load_project_sprints(db, project.id)
+    project_members = _load_project_members(db, project.id)
+
+    alpha_scale = {key: float(value) for key, value in active_model.alpha_scale.items()}
+    beta = float(active_model.beta)
+    work_norms = {key: float(value) for key, value in active_model.work_norms.items()}
+    formulas = {**DEFAULT_FORMULAS, **active_model.formulas}
+    sprint_by_id = {sprint.id: sprint for sprint in sprints}
+    log_normal_params = derive_log_normal_params(tasks) if tasks else {key: {"mu": 0, "sigma": 0.05} for key in DEFAULT_WORK_NORMS}
+    modeled_tasks = [
+        build_modeled_task(task, sprint_by_id, alpha_scale, beta, work_norms, formulas, log_normal_params)
+        for task in tasks
+    ]
+    for task in modeled_tasks:
+        task.model_details["versionNumber"] = active_model.version_number
+
+    return {
+        "active_model": active_model,
+        "tasks": tasks,
+        "sprints": sprints,
+        "project_members": project_members,
+        "alpha_scale": alpha_scale,
+        "beta": beta,
+        "work_norms": work_norms,
+        "formulas": formulas,
+        "log_normal_params": log_normal_params,
+        "modeled_tasks": modeled_tasks,
     }
 
 
@@ -573,6 +626,32 @@ def build_modeled_task(
         fallback=normal_cdf((math.log(max(planned_hours, 1e-6)) - params["mu"]) / max(params["sigma"], 0.05)),
     )
 
+    model_details = {
+        "versionNumber": None,
+        "inputs": {
+            "storyPoints": story_points,
+            "complexityClass": task.complexity_class.value,
+            "plannedHours": planned_hours,
+            "actualHours": actual_hours,
+            "participantCount": participant_count,
+            "totalParticipantHours": round_to(total_participant_hours, 2),
+            "weightedAlphaHours": round_to(weighted_alpha_hours, 3),
+            "workNorm": work_norm,
+            "beta": beta,
+            "logNormalMu": params["mu"],
+            "logNormalSigma": params["sigma"],
+        },
+        "outputs": {
+            "weightedQualification": round_to(weighted_qualification, 3),
+            "communicationFactor": round_to(communication_factor, 3),
+            "optimalHours": round_to(optimal_hours, 2),
+            "efficiencyIndex": round_to(efficiency_index, 3),
+            "deviationPercent": round_to(deviation_percent, 1),
+            "onTimeProbability": round_to(on_time_probability, 3),
+        },
+        "formulas": formulas,
+    }
+
     return ModeledTask(
         id=task.external_task_id,
         title=task.title or task.external_task_id,
@@ -594,6 +673,7 @@ def build_modeled_task(
         participants=participants,
         has_junior_contributor=any(participant.qualification == "junior" for participant in participants),
         external_dependency=bool(task.external_dependency),
+        model_details=model_details,
     )
 
 
@@ -963,8 +1043,8 @@ def build_recommendations(
     ]
 
 
-def serialize_modeled_task(task: ModeledTask) -> dict:
-    return {
+def serialize_modeled_task(task: ModeledTask, include_model_details: bool = False) -> dict:
+    payload = {
         "id": task.id,
         "title": task.title,
         "sprintId": task.sprint_id,
@@ -995,6 +1075,9 @@ def serialize_modeled_task(task: ModeledTask) -> dict:
         "hasJuniorContributor": task.has_junior_contributor,
         "externalDependency": task.external_dependency,
     }
+    if include_model_details:
+        payload["modelDetails"] = task.model_details
+    return payload
 
 
 def format_sprint_date_label(start: date | None, end: date | None) -> str:
