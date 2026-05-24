@@ -1,9 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.repositories.project import project_repository
+from app.repositories.upload import upload_repository
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
+from app.schemas.upload import ImportResult, ImportTemplateSpec, UploadRead
+from app.services.excel_import import (
+    ExcelImportError,
+    TEMPLATE_FILE_PATH,
+    get_import_template_spec,
+    import_excel_for_project,
+)
 
 router = APIRouter()
 
@@ -22,6 +31,25 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)) -> Pro
             detail="Project with this name already exists.",
         )
     return project_repository.create(db, payload)
+
+
+@router.get("/import-template/spec", response_model=ImportTemplateSpec)
+def get_import_template() -> ImportTemplateSpec:
+    return ImportTemplateSpec(**get_import_template_spec())
+
+
+@router.get("/import-template/xlsx")
+def download_import_template() -> FileResponse:
+    if not TEMPLATE_FILE_PATH.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Template file is not available yet.",
+        )
+    return FileResponse(
+        TEMPLATE_FILE_PATH,
+        filename="scrummetrics_import_template.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @router.get("/{project_id}", response_model=ProjectRead)
@@ -51,3 +79,35 @@ def update_project(
             )
 
     return project_repository.update(db, project, payload)
+
+
+@router.get("/{project_id}/uploads", response_model=list[UploadRead])
+def list_project_uploads(project_id: int, db: Session = Depends(get_db)) -> list[UploadRead]:
+    project = project_repository.get(db, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+    return upload_repository.list_by_project(db, project_id)
+
+
+@router.post("/{project_id}/uploads/excel", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
+async def upload_project_excel(
+    project_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> ImportResult:
+    project = project_repository.get(db, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+
+    try:
+        upload, summary = await import_excel_for_project(db, project, file)
+    except ExcelImportError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    return ImportResult(
+        upload=UploadRead.model_validate(upload),
+        created_tasks=summary.created_tasks,
+        updated_tasks=summary.updated_tasks,
+        assignments_written=summary.assignments_written,
+        sprints_touched=summary.sprints_touched,
+    )

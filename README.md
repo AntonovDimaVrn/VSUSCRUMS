@@ -20,4 +20,6 @@
      `docker compose exec backend alembic upgrade head`
   4. Open the API docs:
      `http://localhost:8000/docs`
+  5. Inspect the Excel import contract:
+     `GET /api/v1/projects/import-template/spec`
   
