@@ -9,18 +9,20 @@ import {
   Database,
 } from "lucide-react";
 import { useProjects } from "../context/ProjectsContext";
+import {
+  BackendApiError,
+  IMPORT_TEMPLATE_URL,
+  createBackendProject,
+  listBackendProjects,
+  listProjectUploads,
+  mapBackendUploadsToRecords,
+  uploadProjectExcel,
+} from "../api/backend";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
-
-const sampleData = [
-  { id: 1, taskId: "TASK-001", sprint: "Спринт 6", assignee: "Иван Иванов", complexity: "Средняя", status: "Завершена" },
-  { id: 2, taskId: "TASK-002", sprint: "Спринт 6", assignee: "Анна Смирнова", complexity: "Высокая", status: "Завершена" },
-  { id: 3, taskId: "TASK-003", sprint: "Спринт 6", assignee: "Михаил Петров", complexity: "Низкая", status: "В работе" },
-  { id: 4, taskId: "TASK-004", sprint: "Спринт 6", assignee: "Елена Сидорова", complexity: "Средняя", status: "Завершена" },
-  { id: 5, taskId: "TASK-005", sprint: "Спринт 6", assignee: "Иван Иванов", complexity: "Высокая", status: "Завершена" },
-];
+import { useProjectAnalytics } from "../model/useProjectAnalytics";
 
 export function DataUpload() {
   const {
@@ -29,16 +31,20 @@ export function DataUpload() {
     selectedProjectId,
     selectProject,
     createProject,
-    addUpload,
+    linkProjectToBackend,
+    replaceProjectUploads,
     uploads,
   } = useProjects();
+  const { previewRows, uploadFields } = useProjectAnalytics();
   const [isDragging, setIsDragging] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle");
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [targetProjectId, setTargetProjectId] = useState(selectedProjectId);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDescription, setNewProjectDescription] = useState("");
   const [projectError, setProjectError] = useState("");
+  const [uploadErrorMessage, setUploadErrorMessage] = useState("");
   const [lastUploadedFile, setLastUploadedFile] = useState("");
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   useEffect(() => {
     setTargetProjectId(selectedProjectId);
@@ -50,28 +56,110 @@ export function DataUpload() {
   );
 
   const projectUploads = useMemo(
-    () => uploads.filter((item) => item.projectId === selectedProjectId),
-    [selectedProjectId, uploads],
+    () => uploads.filter((item) => item.projectId === targetProjectId),
+    [targetProjectId, uploads],
   );
 
   const latestProjectUpload = projectUploads[0];
 
-  const handleUpload = (filename: string) => {
-    if (!targetProjectId) {
+  useEffect(() => {
+    if (!selectedTargetProject?.backendId) return;
+
+    let isCancelled = false;
+
+    const loadProjectUploads = async () => {
+      setIsHistoryLoading(true);
+
+      try {
+        const backendUploads = await listProjectUploads(selectedTargetProject.backendId!);
+        if (isCancelled) return;
+        replaceProjectUploads(
+          selectedTargetProject.id,
+          mapBackendUploadsToRecords(selectedTargetProject.id, backendUploads),
+        );
+      } catch {
+        if (!isCancelled && uploadStatus === "idle") {
+          setUploadErrorMessage(
+            "Не удалось загрузить историю импортов с backend. Проверьте, что сервис доступен на localhost:8000.",
+          );
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsHistoryLoading(false);
+        }
+      }
+    };
+
+    void loadProjectUploads();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [replaceProjectUploads, selectedTargetProject, uploadStatus]);
+
+  const ensureBackendProject = async () => {
+    if (!selectedTargetProject) {
+      throw new Error("Сначала выберите проект для импорта.");
+    }
+
+    if (selectedTargetProject.backendId) {
+      return selectedTargetProject.backendId;
+    }
+
+    try {
+      const backendProject = await createBackendProject(selectedTargetProject);
+      linkProjectToBackend(selectedTargetProject.id, backendProject.id);
+      return backendProject.id;
+    } catch (error) {
+      if (!(error instanceof BackendApiError) || error.status !== 409) {
+        throw error;
+      }
+
+      const backendProjects = await listBackendProjects();
+      const existingProject = backendProjects.find(
+        (project) =>
+          project.name.trim().toLowerCase() === selectedTargetProject.name.trim().toLowerCase(),
+      );
+
+      if (!existingProject) {
+        throw error;
+      }
+
+      linkProjectToBackend(selectedTargetProject.id, existingProject.id);
+      return existingProject.id;
+    }
+  };
+
+  const handleUpload = async (file: File) => {
+    if (!targetProjectId || !selectedTargetProject) {
+      setUploadErrorMessage("Сначала выберите проект для импорта, затем повторите загрузку файла.");
       setUploadStatus("error");
       return;
     }
 
-    const generatedRecords = 180 + (filename.length % 7) * 27;
-    selectProject(targetProjectId);
-    addUpload({
-      projectId: targetProjectId,
-      filename,
-      records: generatedRecords,
-      status: "success",
-    });
-    setLastUploadedFile(filename);
-    setUploadStatus("success");
+    setUploadStatus("uploading");
+    setUploadErrorMessage("");
+
+    try {
+      const backendProjectId = await ensureBackendProject();
+      await uploadProjectExcel(backendProjectId, file);
+      const backendUploads = await listProjectUploads(backendProjectId);
+
+      replaceProjectUploads(
+        selectedTargetProject.id,
+        mapBackendUploadsToRecords(selectedTargetProject.id, backendUploads),
+      );
+      selectProject(targetProjectId);
+      setLastUploadedFile(file.name);
+      setUploadStatus("success");
+    } catch (error) {
+      const message =
+        error instanceof BackendApiError
+          ? error.message
+          : "Не удалось загрузить файл. Проверьте backend и формат Excel-шаблона.";
+      setUploadErrorMessage(message);
+      setUploadStatus("error");
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -88,17 +176,18 @@ export function DataUpload() {
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      handleUpload(file.name);
+      void handleUpload(file);
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      handleUpload(e.target.files[0].name);
+      void handleUpload(e.target.files[0]);
+      e.target.value = "";
     }
   };
 
-  const handleCreateProject = () => {
+  const handleCreateProject = async () => {
     const trimmedName = newProjectName.trim();
     if (!trimmedName) {
       setProjectError("Введите название проекта.");
@@ -118,11 +207,33 @@ export function DataUpload() {
       name: trimmedName,
       description: newProjectDescription,
     });
+    let syncMessage = "";
+
+    try {
+      const backendProject = await createBackendProject({
+        name: trimmedName,
+        description: newProjectDescription.trim() || "Новый проект без описания.",
+      });
+      linkProjectToBackend(project.id, backendProject.id);
+    } catch (error) {
+      if (error instanceof BackendApiError && error.status === 409) {
+        const backendProjects = await listBackendProjects();
+        const existingProject = backendProjects.find(
+          (item) => item.name.trim().toLowerCase() === trimmedName.toLowerCase(),
+        );
+        if (existingProject) {
+          linkProjectToBackend(project.id, existingProject.id);
+        }
+      } else {
+        syncMessage =
+          "Проект создан локально, но backend пока недоступен. Его можно будет связать при первой загрузке Excel.";
+      }
+    }
 
     setTargetProjectId(project.id);
     setNewProjectName("");
     setNewProjectDescription("");
-    setProjectError("");
+    setProjectError(syncMessage);
   };
 
   return (
@@ -220,6 +331,38 @@ export function DataUpload() {
         </div>
       </div>
 
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center">
+            <FileSpreadsheet className="text-violet-600" size={20} />
+          </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Поля, необходимые для математической модели</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Чтобы проект рассчитывал `Q_i`, `Topt_i`, `EI_i`, `δ_i` и вероятности сроков, файл должен содержать следующие поля.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <Button asChild variant="outline" className="border-violet-200 text-violet-700 hover:bg-violet-50">
+              <a href={IMPORT_TEMPLATE_URL} target="_blank" rel="noreferrer">
+                <FileSpreadsheet size={16} />
+                Скачать шаблон .xlsx
+              </a>
+            </Button>
+          </div>
+        <div className="flex flex-wrap gap-2 mt-5">
+          {uploadFields.map((field) => (
+            <span
+              key={field}
+              className="px-3 py-1.5 rounded-lg border border-violet-200 bg-violet-50 text-sm font-medium text-violet-800"
+            >
+              {field}
+            </span>
+          ))}
+        </div>
+      </div>
+
       {/* Upload Area */}
       <div className="bg-white rounded-xl p-8 border border-gray-200">
         <div
@@ -246,19 +389,30 @@ export function DataUpload() {
               <input
                 type="file"
                 className="hidden"
-                accept=".xlsx,.xls"
+                accept=".xlsx"
                 onChange={handleFileSelect}
               />
-              <span className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+              <span className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-white transition-colors hover:bg-blue-700">
                 <FileSpreadsheet size={20} />
-                Выбрать файл
+                {uploadStatus === "uploading" ? "Загружаем..." : "Выбрать файл"}
               </span>
             </label>
-            <p className="text-xs text-gray-400 mt-4">Поддерживаемые форматы: .xlsx, .xls</p>
+            <p className="text-xs text-gray-400 mt-4">Поддерживаемый формат: .xlsx</p>
           </div>
         </div>
 
         {/* Upload Status */}
+        {uploadStatus === "uploading" && (
+          <div className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <p className="text-sm font-medium text-blue-900">
+              Файл загружается в backend и проходит валидацию шаблона.
+            </p>
+            <p className="mt-1 text-sm text-blue-700">
+              Не закрывайте страницу, пока импорт не завершится.
+            </p>
+          </div>
+        )}
+
         {uploadStatus === "success" && (
           <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
             <CheckCircle className="text-green-600 mt-0.5" size={20} />
@@ -279,7 +433,7 @@ export function DataUpload() {
             <div className="flex-1">
               <h4 className="text-sm font-medium text-red-900">Ошибка валидации</h4>
               <p className="text-sm text-red-700 mt-1">
-                Сначала выберите проект для импорта, затем повторите загрузку файла.
+                {uploadErrorMessage || "Сначала выберите проект для импорта, затем повторите загрузку файла."}
               </p>
             </div>
           </div>
@@ -292,7 +446,7 @@ export function DataUpload() {
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">Предпросмотр данных</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Первые 5 строк последней загрузки для проекта {selectedProject?.name}
+              Первые строки в формате, который нужен для расчёта модели проекта {selectedTargetProject?.name}
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -300,40 +454,48 @@ export function DataUpload() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    ID задачи
+                    Task ID
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Спринт
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Исполнитель
+                    Story Points
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Сложность
+                    Класс
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Статус
+                    Участники
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Tplan
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Tfact
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {sampleData.map((row) => (
+                {previewRows.map((row) => (
                   <tr key={row.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {row.taskId}
+                      {row.id}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {row.sprint}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.assignee}
+                      {row.storyPoints}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-2 py-1 text-xs font-medium rounded ${
-                          row.complexity === "Высокая"
+                          row.complexity === "XL"
+                            ? "bg-red-100 text-red-800"
+                            : row.complexity === "L"
                             ? "bg-amber-100 text-amber-800"
-                            : row.complexity === "Средняя"
+                            : row.complexity === "M"
                             ? "bg-blue-100 text-blue-800"
                             : "bg-green-100 text-green-800"
                         }`}
@@ -342,7 +504,13 @@ export function DataUpload() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.status}
+                      {row.participants}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {row.plannedHours} ч
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {row.actualHours} ч
                     </td>
                   </tr>
                 ))}
@@ -357,10 +525,15 @@ export function DataUpload() {
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">История загрузок</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Недавние импорты для проекта {selectedProject?.name}
+              Недавние импорты для проекта {selectedTargetProject?.name}
             </p>
           </div>
         <div className="divide-y divide-gray-200">
+          {isHistoryLoading && (
+            <div className="px-6 py-4 text-sm text-gray-500">
+              Загружаем историю импортов из backend...
+            </div>
+          )}
           {projectUploads.length === 0 && (
             <div className="px-6 py-8 text-sm text-gray-500">
               Для этого проекта пока нет загрузок. Создайте проект или загрузите первый Excel-файл.

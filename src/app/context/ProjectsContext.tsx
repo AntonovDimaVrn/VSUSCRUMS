@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -20,6 +21,7 @@ export type UploadRecord = {
 
 export type Project = {
   id: string;
+  backendId?: number | null;
   name: string;
   description: string;
   createdAt: string;
@@ -45,6 +47,8 @@ type ProjectsContextValue = {
   selectProject: (projectId: string) => void;
   createProject: (input: CreateProjectInput) => Project;
   addUpload: (input: UploadFileInput) => UploadRecord;
+  linkProjectToBackend: (projectId: string, backendId: number) => void;
+  replaceProjectUploads: (projectId: string, nextUploads: UploadRecord[]) => void;
 };
 
 const STORAGE_KEY = "scrum-metrics-projects-state";
@@ -162,10 +166,15 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     [projects, selectedProjectId],
   );
 
-  const createProject = (input: CreateProjectInput) => {
+  const selectProject = useCallback((projectId: string) => {
+    setSelectedProjectId(projectId);
+  }, []);
+
+  const createProject = useCallback((input: CreateProjectInput) => {
     const trimmedName = input.name.trim();
     const project: Project = {
       id: `${trimmedName.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, "-")}-${Date.now()}`,
+      backendId: null,
       name: trimmedName,
       description: input.description?.trim() || "Новый проект без описания.",
       createdAt: new Date().toISOString(),
@@ -175,9 +184,9 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     setSelectedProjectId(project.id);
 
     return project;
-  };
+  }, []);
 
-  const addUpload = (input: UploadFileInput) => {
+  const addUpload = useCallback((input: UploadFileInput) => {
     const upload: UploadRecord = {
       id: Date.now(),
       projectId: input.projectId,
@@ -191,22 +200,50 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     setSelectedProjectId(input.projectId);
 
     return upload;
-  };
+  }, []);
+
+  const linkProjectToBackend = useCallback((projectId: string, backendId: number) => {
+    setProjects((currentProjects) =>
+      currentProjects.map((project) =>
+        project.id === projectId ? { ...project, backendId } : project,
+      ),
+    );
+  }, []);
+
+  const replaceProjectUploads = useCallback((projectId: string, nextUploads: UploadRecord[]) => {
+    setUploads((currentUploads) => [
+      ...nextUploads,
+      ...currentUploads.filter((upload) => upload.projectId !== projectId),
+    ]);
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      projects,
+      selectedProjectId,
+      selectedProject,
+      uploads,
+      selectProject,
+      createProject,
+      addUpload,
+      linkProjectToBackend,
+      replaceProjectUploads,
+    }),
+    [
+      addUpload,
+      createProject,
+      linkProjectToBackend,
+      projects,
+      replaceProjectUploads,
+      selectProject,
+      selectedProject,
+      selectedProjectId,
+      uploads,
+    ],
+  );
 
   return (
-    <ProjectsContext.Provider
-      value={{
-        projects,
-        selectedProjectId,
-        selectedProject,
-        uploads,
-        selectProject: setSelectedProjectId,
-        createProject,
-        addUpload,
-      }}
-    >
-      {children}
-    </ProjectsContext.Provider>
+    <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>
   );
 }
 
