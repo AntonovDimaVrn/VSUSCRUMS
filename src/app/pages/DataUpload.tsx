@@ -13,6 +13,7 @@ import {
   BackendApiError,
   IMPORT_TEMPLATE_URL,
   createBackendProject,
+  ensureBackendProjectId,
   listBackendProjects,
   listProjectUploads,
   mapBackendUploadsToRecords,
@@ -101,33 +102,7 @@ export function DataUpload() {
     if (!selectedTargetProject) {
       throw new Error("Сначала выберите проект для импорта.");
     }
-
-    if (selectedTargetProject.backendId) {
-      return selectedTargetProject.backendId;
-    }
-
-    try {
-      const backendProject = await createBackendProject(selectedTargetProject);
-      linkProjectToBackend(selectedTargetProject.id, backendProject.id);
-      return backendProject.id;
-    } catch (error) {
-      if (!(error instanceof BackendApiError) || error.status !== 409) {
-        throw error;
-      }
-
-      const backendProjects = await listBackendProjects();
-      const existingProject = backendProjects.find(
-        (project) =>
-          project.name.trim().toLowerCase() === selectedTargetProject.name.trim().toLowerCase(),
-      );
-
-      if (!existingProject) {
-        throw error;
-      }
-
-      linkProjectToBackend(selectedTargetProject.id, existingProject.id);
-      return existingProject.id;
-    }
+    return ensureBackendProjectId(selectedTargetProject, linkProjectToBackend);
   };
 
   const handleUpload = async (file: File) => {
@@ -150,6 +125,11 @@ export function DataUpload() {
         mapBackendUploadsToRecords(selectedTargetProject.id, backendUploads),
       );
       selectProject(targetProjectId);
+      window.dispatchEvent(
+        new CustomEvent("project-analytics-refresh", {
+          detail: { projectId: selectedTargetProject.id },
+        }),
+      );
       setLastUploadedFile(file.name);
       setUploadStatus("success");
     } catch (error) {

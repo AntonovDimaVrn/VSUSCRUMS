@@ -21,6 +21,12 @@ class Project(Base, TimestampMixin):
     uploads = relationship("Upload", back_populates="project", cascade="all, delete-orphan")
     sprints = relationship("Sprint", back_populates="project", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
+    model_versions = relationship(
+        "ModelConfigVersion",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ModelConfigVersion.version_number.desc()",
+    )
 
 
 class ProjectMember(Base):

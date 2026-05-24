@@ -5,6 +5,7 @@ import {
   Users,
   Calendar,
   Lightbulb,
+  Sigma,
   ChevronDown,
   FolderKanban,
   LogOut,
@@ -32,6 +33,7 @@ export function RootLayout() {
     { path: "/team", icon: Users, label: "Анализ команды" },
     { path: "/sprint", icon: Calendar, label: "Анализ спринта" },
     { path: "/recommendations", icon: Lightbulb, label: "Рекомендации" },
+    { path: "/model", icon: Sigma, label: "Математическая модель" },
   ];
 
   const isActive = (path: string) => {

@@ -28,6 +28,167 @@ export type BackendImportResult = {
   sprints_touched: number;
 };
 
+export type BackendAnalytics = {
+  hasData: boolean;
+  projectName: string;
+  alphaScale: Record<string, number>;
+  beta: number;
+  workNorms: Record<string, number>;
+  logNormalParams: Record<string, { mu: number; sigma: number }>;
+  regression: {
+    intercept: number;
+    sp: number;
+    qualification: number;
+    participants: number;
+  };
+  dashboard: {
+    averageVelocity: number;
+    estimateAccuracy: number;
+    currentBacklogCompletion: number;
+    riskScore: number;
+    riskLabel: string;
+    sprintSeries: Array<{
+      sprint: string;
+      planned: number;
+      completed: number;
+      sprintEi: number;
+    }>;
+    complexityDistribution: Array<{
+      code: string;
+      name: string;
+      value: number;
+      color: string;
+    }>;
+    modelSummary: Array<{
+      label: string;
+      value: string;
+      note: string;
+    }>;
+  };
+  sprint: {
+    sprintName: string;
+    dateLabel: string;
+    durationDays: number;
+    plannedStoryPoints: number;
+    completedStoryPoints: number;
+    backlogCompletionIndex: number;
+    sprintEfficiencyIndex: number;
+    averageTaskProbability: number;
+    riskyTaskCount: number;
+    carryoverTasks: BackendModeledTask[];
+    problematicTasks: Array<
+      BackendModeledTask & {
+        severity: "high" | "medium";
+        reason: string;
+      }
+    >;
+    probabilityBuckets: Array<{
+      label: string;
+      count: number;
+      percentage: number;
+      color: string;
+    }>;
+  };
+  team: {
+    totalMembers: number;
+    overloadedCount: number;
+    averageUtilization: number;
+    members: Array<{
+      id: string;
+      name: string;
+      role: string;
+      qualification: string;
+      workload: number;
+      capacity: number;
+      status: "optimal" | "overloaded" | "underutilized";
+      utilizationPercent: number;
+      weightedEfficiency: number;
+      averageProbability: number;
+    }>;
+    loadDistribution: Array<{
+      name: string;
+      workload: number;
+      capacity: number;
+    }>;
+    complexityByRole: Array<{
+      role: string;
+      S: number;
+      M: number;
+      L: number;
+      XL: number;
+    }>;
+  };
+  recommendations: Array<{
+    id: string;
+    priority: "high" | "medium" | "low";
+    kind: "scope" | "team" | "risk" | "calibration" | "quality";
+    title: string;
+    description: string;
+    reason: string;
+    metrics: string[];
+  }>;
+  previewRows: Array<{
+    id: string;
+    sprint: string;
+    storyPoints: number;
+    complexity: string;
+    participants: number;
+    plannedHours: number;
+    actualHours: number;
+  }>;
+  uploadFields: string[];
+};
+
+export type BackendModeledTask = {
+  id: string;
+  title: string;
+  sprintId: number | null;
+  sprintName: string;
+  storyPoints: number;
+  complexity: string;
+  plannedHours: number;
+  actualHours: number;
+  status: string;
+  participantCount: number;
+  weightedQualification: number;
+  communicationFactor: number;
+  optimalHours: number;
+  efficiencyIndex: number;
+  deviationPercent: number;
+  onTimeProbability: number;
+  area: string | null;
+  participants: Array<{
+    name: string;
+    role: string;
+    qualification: string;
+    hours: number;
+    alpha: number;
+  }>;
+  hasJuniorContributor: boolean;
+  externalDependency: boolean;
+};
+
+export type BackendModelConfigVersion = {
+  id: number;
+  project_id: number;
+  version_number: number;
+  is_active: boolean;
+  change_note: string | null;
+  alpha_scale: Record<string, number>;
+  beta: number;
+  work_norms: Record<string, number>;
+  formulas: Record<string, string>;
+  created_at: string;
+};
+
+export type BackendModelHistoryItem = {
+  id: number;
+  version_number: number;
+  is_active: boolean;
+  change_note: string | null;
+  created_at: string;
+};
+
 const API_BASE_URL =
   import.meta.env.VITE_BACKEND_API_URL?.replace(/\/$/, "") ?? "http://localhost:8000/api/v1";
 
@@ -98,6 +259,46 @@ export function listProjectUploads(projectId: number) {
   return apiRequest<BackendUpload[]>(`/projects/${projectId}/uploads`);
 }
 
+export function getProjectAnalytics(projectId: number) {
+  return apiRequest<BackendAnalytics>(`/projects/${projectId}/analytics`);
+}
+
+export function getProjectModel(projectId: number) {
+  return apiRequest<BackendModelConfigVersion>(`/projects/${projectId}/model`);
+}
+
+export function listProjectModelHistory(projectId: number) {
+  return apiRequest<BackendModelHistoryItem[]>(`/projects/${projectId}/model/history`);
+}
+
+export function createProjectModelVersion(
+  projectId: number,
+  payload: {
+    alpha_scale: Record<string, number>;
+    beta: number;
+    work_norms: Record<string, number>;
+    formulas: Record<string, string>;
+    change_note?: string;
+  },
+) {
+  return apiRequest<BackendModelConfigVersion>(`/projects/${projectId}/model/versions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function restoreProjectModelVersion(projectId: number, versionId: number) {
+  return apiRequest<BackendModelConfigVersion>(
+    `/projects/${projectId}/model/history/${versionId}/restore`,
+    {
+      method: "POST",
+    },
+  );
+}
+
 export async function uploadProjectExcel(projectId: number, file: File) {
   const formData = new FormData();
   formData.append("file", file);
@@ -126,4 +327,35 @@ export function mapBackendUploadsToRecords(
     status: upload.status === "processed" ? "success" : "error",
     records: upload.records_count,
   }));
+}
+
+export async function ensureBackendProjectId(
+  selectedProject: Pick<Project, "id" | "name" | "description" | "backendId">,
+  linkProjectToBackend: (projectId: string, backendId: number) => void,
+) {
+  if (selectedProject.backendId) {
+    return selectedProject.backendId;
+  }
+
+  try {
+    const backendProject = await createBackendProject(selectedProject);
+    linkProjectToBackend(selectedProject.id, backendProject.id);
+    return backendProject.id;
+  } catch (error) {
+    if (!(error instanceof BackendApiError) || error.status !== 409) {
+      throw error;
+    }
+
+    const backendProjects = await listBackendProjects();
+    const existingProject = backendProjects.find(
+      (project) => project.name.trim().toLowerCase() === selectedProject.name.trim().toLowerCase(),
+    );
+
+    if (!existingProject) {
+      throw error;
+    }
+
+    linkProjectToBackend(selectedProject.id, existingProject.id);
+    return existingProject.id;
+  }
 }
