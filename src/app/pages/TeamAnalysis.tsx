@@ -3,12 +3,14 @@ import { Users, AlertCircle, TrendingUp } from "lucide-react";
 import { useProjectAnalytics } from "../model/useProjectAnalytics";
 
 const qualificationLabel = {
-  junior: "Junior",
-  middle: "Middle",
-  senior: "Senior",
-  analyst: "Analyst",
-  pm: "PM",
+  junior: "младший специалист",
+  middle: "основной специалист",
+  senior: "ведущий специалист",
 };
+
+function formatWholeHours(value: number) {
+  return Math.round(value).toLocaleString("ru-RU");
+}
 
 export function TeamAnalysis() {
   const { team, projectName, isLoading, error, hasData } = useProjectAnalytics();
@@ -44,7 +46,7 @@ export function TeamAnalysis() {
       <div>
         <h2 className="text-2xl font-semibold text-gray-900">Анализ команды</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Нагрузка, квалификация и вклад участников в модель проекта {projectName}
+          Нагрузка, роль, квалификация и вклад участников в модель проекта {projectName}
         </p>
       </div>
 
@@ -94,7 +96,7 @@ export function TeamAnalysis() {
         <div className="px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">Участники команды</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Нагрузка по часам, квалификация и модельная эффективность текущего спринта
+            Нагрузка по часам, роль, квалификация и модельная эффективность текущего спринта
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -146,9 +148,15 @@ export function TeamAnalysis() {
                       {qualificationLabel[member.qualification]}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 bg-gray-200 rounded-full h-2 w-32">
+                  <td className="px-6 py-4">
+                    <div className="min-w-[180px] space-y-2">
+                      <div className="flex items-center justify-between gap-3 text-sm text-gray-500">
+                        <span>Загрузка</span>
+                        <span className="shrink-0">
+                          {formatWholeHours(member.workload)}/{formatWholeHours(member.capacity)} ч
+                        </span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-gray-200">
                         <div
                           className={`h-2 rounded-full ${
                             member.status === "overloaded"
@@ -160,9 +168,9 @@ export function TeamAnalysis() {
                           style={{ width: `${Math.min(member.utilizationPercent, 130)}%` }}
                         ></div>
                       </div>
-                      <span className="text-sm text-gray-500">
-                        {member.workload}/{member.capacity}h
-                      </span>
+                      <div className="text-xs text-gray-400">
+                        {member.utilizationPercent}% от доступной ёмкости
+                      </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
@@ -258,15 +266,15 @@ export function TeamAnalysis() {
           <span>Интенсивность участия:</span>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded bg-blue-100"></div>
-            <span>1 задача</span>
+            <span>1 заявка</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded bg-blue-300"></div>
-            <span>2 задачи</span>
+            <span>2 заявки</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded bg-blue-500"></div>
-            <span>3+ задач</span>
+            <span>3+ заявок</span>
           </div>
         </div>
       </div>
