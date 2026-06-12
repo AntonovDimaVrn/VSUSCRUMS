@@ -100,7 +100,16 @@ export function TeamAnalysis() {
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[1040px] table-fixed">
+            <colgroup>
+              <col className="w-[220px]" />
+              <col className="w-[160px]" />
+              <col className="w-[170px]" />
+              <col className="w-[320px]" />
+              <col className="w-[90px]" />
+              <col className="w-[110px]" />
+              <col className="w-[150px]" />
+            </colgroup>
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -149,14 +158,14 @@ export function TeamAnalysis() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="min-w-[180px] space-y-2">
+                    <div className="w-full space-y-2 overflow-hidden">
                       <div className="flex items-center justify-between gap-3 text-sm text-gray-500">
                         <span>Загрузка</span>
                         <span className="shrink-0">
                           {formatWholeHours(member.workload)}/{formatWholeHours(member.capacity)} ч
                         </span>
                       </div>
-                      <div className="h-2 w-full rounded-full bg-gray-200">
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
                         <div
                           className={`h-2 rounded-full ${
                             member.status === "overloaded"
@@ -165,7 +174,7 @@ export function TeamAnalysis() {
                               ? "bg-blue-500"
                               : "bg-green-500"
                           }`}
-                          style={{ width: `${Math.min(member.utilizationPercent, 130)}%` }}
+                          style={{ width: `${Math.min(member.utilizationPercent, 100)}%` }}
                         ></div>
                       </div>
                       <div className="text-xs text-gray-400">
