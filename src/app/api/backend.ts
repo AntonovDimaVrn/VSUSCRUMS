@@ -47,6 +47,22 @@ export type BackendAnalytics = {
     currentBacklogCompletion: number;
     riskScore: number;
     riskLabel: string;
+    inputFile?: string;
+    period?: string;
+    sprintCount?: number;
+    requestCount?: number;
+    assignmentRows?: number;
+    teamMemberCount?: number;
+    consultations?: number;
+    errors?: number;
+    improvements?: number;
+    plannedHours?: number;
+    actualHours?: number;
+    deviationHours?: number;
+    deviationPercent?: number;
+    optimalHours?: number;
+    optimalDeviationPercent?: number;
+    onTimeProbability?: number;
     sprintSeries: Array<{
       sprint: string;
       planned: number;
@@ -276,6 +292,16 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function listBackendProjects() {
   return apiRequest<BackendProject[]>("/projects");
+}
+
+export function mapBackendProjectToProject(project: BackendProject): Project {
+  return {
+    id: `backend-${project.id}`,
+    backendId: project.id,
+    name: project.name,
+    description: project.description || "Проект без описания.",
+    createdAt: project.created_at,
+  };
 }
 
 export function createBackendProject(project: Pick<Project, "name" | "description">) {

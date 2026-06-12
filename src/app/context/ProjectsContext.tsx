@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { listBackendProjects, mapBackendProjectToProject } from "../api/backend";
 
 export type UploadStatus = "success" | "error";
 
@@ -30,6 +31,7 @@ export type Project = {
 type CreateProjectInput = {
   name: string;
   description?: string;
+  backendId?: number | null;
 };
 
 type UploadFileInput = {
@@ -49,63 +51,28 @@ type ProjectsContextValue = {
   addUpload: (input: UploadFileInput) => UploadRecord;
   linkProjectToBackend: (projectId: string, backendId: number) => void;
   replaceProjectUploads: (projectId: string, nextUploads: UploadRecord[]) => void;
+  syncProjectsFromBackend: () => Promise<void>;
 };
 
-const STORAGE_KEY = "scrum-metrics-projects-state";
+const STORAGE_KEY = "scrums-projects-state";
 
 const initialProjects: Project[] = [
   {
-    id: "mobile-app",
-    name: "Команда мобильного приложения",
-    description: "iOS и Android команда с двухнедельными спринтами.",
-    createdAt: "2026-04-05",
-  },
-  {
-    id: "web-platform",
-    name: "Web Platform",
-    description: "Веб-платформа аналитики и внутренние сервисы.",
-    createdAt: "2026-04-08",
-  },
-  {
-    id: "data-core",
-    name: "Data Core",
-    description: "Команда витрин данных и интеграций.",
-    createdAt: "2026-04-12",
+    id: "scrums-vkr",
+    name: "SCRUMS input Jan-Jun 2026",
+    description: "Данные ВКР: 20 недельных спринтов, 200 заявок, 509 строк участия.",
+    createdAt: "2026-05-29",
   },
 ];
 
 const initialUploads: UploadRecord[] = [
   {
     id: 1,
-    projectId: "mobile-app",
-    filename: "sprint-data-q1-2026.xlsx",
-    date: "20.04.2026",
+    projectId: "scrums-vkr",
+    filename: "SCRUMS input Jan-Jun 2026.xlsx",
+    date: "29.05.2026",
     status: "success",
-    records: 342,
-  },
-  {
-    id: 2,
-    projectId: "mobile-app",
-    filename: "team-tasks-march.xlsx",
-    date: "15.04.2026",
-    status: "success",
-    records: 289,
-  },
-  {
-    id: 3,
-    projectId: "web-platform",
-    filename: "sprint-planning-feb.xlsx",
-    date: "10.04.2026",
-    status: "error",
-    records: 0,
-  },
-  {
-    id: 4,
-    projectId: "data-core",
-    filename: "backlog-jan-2026.xlsx",
-    date: "05.04.2026",
-    status: "success",
-    records: 412,
+    records: 509,
   },
 ];
 
@@ -174,7 +141,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     const trimmedName = input.name.trim();
     const project: Project = {
       id: `${trimmedName.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, "-")}-${Date.now()}`,
-      backendId: null,
+      backendId: input.backendId ?? null,
       name: trimmedName,
       description: input.description?.trim() || "Новый проект без описания.",
       createdAt: new Date().toISOString(),
@@ -217,6 +184,52 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     ]);
   }, []);
 
+  const syncProjectsFromBackend = useCallback(async () => {
+    const backendProjects = await listBackendProjects();
+    const mappedProjects = backendProjects.map(mapBackendProjectToProject);
+
+    setProjects((currentProjects) => {
+      const nextProjects = [...currentProjects];
+
+      for (const backendProject of mappedProjects) {
+        const existingIndex = nextProjects.findIndex(
+          (project) =>
+            project.backendId === backendProject.backendId ||
+            project.name.trim().toLowerCase() === backendProject.name.trim().toLowerCase(),
+        );
+
+        if (existingIndex >= 0) {
+          nextProjects[existingIndex] = {
+            ...nextProjects[existingIndex],
+            backendId: backendProject.backendId,
+            name: backendProject.name,
+            description: backendProject.description,
+            createdAt: nextProjects[existingIndex].createdAt || backendProject.createdAt,
+          };
+        } else {
+          nextProjects.push(backendProject);
+        }
+      }
+
+      return nextProjects;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    void syncProjectsFromBackend().catch(() => {
+      // The app still works with local projects when the backend is unavailable.
+    });
+  }, [isHydrated, syncProjectsFromBackend]);
+
+  useEffect(() => {
+    if (!isHydrated || projects.length === 0) return;
+    if (!projects.some((project) => project.id === selectedProjectId)) {
+      setSelectedProjectId(projects[0].id);
+    }
+  }, [isHydrated, projects, selectedProjectId]);
+
   const value = useMemo(
     () => ({
       projects,
@@ -228,6 +241,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
       addUpload,
       linkProjectToBackend,
       replaceProjectUploads,
+      syncProjectsFromBackend,
     }),
     [
       addUpload,
@@ -238,6 +252,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
       selectProject,
       selectedProject,
       selectedProjectId,
+      syncProjectsFromBackend,
       uploads,
     ],
   );

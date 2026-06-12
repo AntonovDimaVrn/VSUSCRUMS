@@ -34,18 +34,27 @@ export function DataUpload() {
     createProject,
     linkProjectToBackend,
     replaceProjectUploads,
+    syncProjectsFromBackend,
     uploads,
   } = useProjects();
-  const { previewRows, uploadFields } = useProjectAnalytics();
+  const {
+    dashboard,
+    hasData,
+    isLoading: isAnalyticsLoading,
+    previewRows,
+    uploadFields,
+  } = useProjectAnalytics();
   const [isDragging, setIsDragging] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [targetProjectId, setTargetProjectId] = useState(selectedProjectId);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDescription, setNewProjectDescription] = useState("");
   const [projectError, setProjectError] = useState("");
+  const [projectSuccessMessage, setProjectSuccessMessage] = useState("");
   const [uploadErrorMessage, setUploadErrorMessage] = useState("");
   const [lastUploadedFile, setLastUploadedFile] = useState("");
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
 
   useEffect(() => {
     setTargetProjectId(selectedProjectId);
@@ -174,55 +183,84 @@ export function DataUpload() {
       return;
     }
 
-    const alreadyExists = projects.some(
+    setIsCreatingProject(true);
+    setProjectError("");
+    setProjectSuccessMessage("");
+
+    const existingLocalProject = projects.find(
       (project) => project.name.toLowerCase() === trimmedName.toLowerCase(),
     );
 
-    if (alreadyExists) {
-      setProjectError("Проект с таким названием уже существует.");
+    if (existingLocalProject) {
+      setTargetProjectId(existingLocalProject.id);
+      selectProject(existingLocalProject.id);
+      setProjectSuccessMessage("Проект уже есть в списке и выбран для загрузки Excel.");
+      setIsCreatingProject(false);
       return;
     }
-
-    const project = createProject({
-      name: trimmedName,
-      description: newProjectDescription,
-    });
-    let syncMessage = "";
 
     try {
       const backendProject = await createBackendProject({
         name: trimmedName,
         description: newProjectDescription.trim() || "Новый проект без описания.",
       });
-      linkProjectToBackend(project.id, backendProject.id);
+
+      const project = createProject({
+        name: backendProject.name,
+        description: backendProject.description || newProjectDescription,
+        backendId: backendProject.id,
+      });
+      setTargetProjectId(project.id);
+      selectProject(project.id);
+      await syncProjectsFromBackend();
+      setNewProjectName("");
+      setNewProjectDescription("");
+      setProjectSuccessMessage("Проект создан и выбран для загрузки Excel.");
     } catch (error) {
       if (error instanceof BackendApiError && error.status === 409) {
-        const backendProjects = await listBackendProjects();
-        const existingProject = backendProjects.find(
-          (item) => item.name.trim().toLowerCase() === trimmedName.toLowerCase(),
-        );
-        if (existingProject) {
-          linkProjectToBackend(project.id, existingProject.id);
+        try {
+          const backendProjects = await listBackendProjects();
+          const existingProject = backendProjects.find(
+            (item) => item.name.trim().toLowerCase() === trimmedName.toLowerCase(),
+          );
+          if (existingProject) {
+            const project = createProject({
+              name: existingProject.name,
+              description: existingProject.description || newProjectDescription,
+              backendId: existingProject.id,
+            });
+            linkProjectToBackend(project.id, existingProject.id);
+            setTargetProjectId(project.id);
+            selectProject(project.id);
+            await syncProjectsFromBackend();
+            setNewProjectName("");
+            setNewProjectDescription("");
+            setProjectSuccessMessage("Проект уже был в backend, я добавил его в список и выбрал.");
+          } else {
+            setProjectError("Backend сообщил, что проект уже существует, но не вернул его в списке.");
+          }
+        } catch {
+          setProjectError("Проект уже существует, но список проектов с backend сейчас не загрузился.");
         }
       } else {
-        syncMessage =
-          "Проект создан локально, но backend пока недоступен. Его можно будет связать при первой загрузке Excel.";
+        setProjectError(
+          error instanceof Error
+            ? error.message
+            : "Не удалось создать проект. Проверьте, что backend доступен на localhost:8000.",
+        );
       }
+    } finally {
+      setIsCreatingProject(false);
     }
-
-    setTargetProjectId(project.id);
-    setNewProjectName("");
-    setNewProjectDescription("");
-    setProjectError(syncMessage);
   };
 
   return (
     <div className="p-8 space-y-6">
       {/* Page Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-gray-900">Загрузка данных</h2>
+        <h2 className="text-2xl font-semibold text-gray-900">Загрузка Excel-файла</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Создавайте проекты и загружайте Excel-файлы в нужную рабочую область.
+          Импорт входного файла SCRUMS для расчёта трудозатрат, EI и рекомендаций.
         </p>
       </div>
 
@@ -233,9 +271,9 @@ export function DataUpload() {
               <Database className="text-blue-600" size={20} />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Проект для загрузки</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Данные для анализа</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Выберите существующий проект, в который нужно импортировать данные.
+                Выберите рабочий набор данных, в который нужно импортировать Excel-файл.
               </p>
             </div>
           </div>
@@ -262,7 +300,18 @@ export function DataUpload() {
 
           {selectedTargetProject && (
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-              <p className="text-sm font-medium text-blue-900">{selectedTargetProject.name}</p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-medium text-blue-900">{selectedTargetProject.name}</p>
+                {selectedTargetProject.backendId ? (
+                  <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800">
+                    backend #{selectedTargetProject.backendId}
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
+                    не связан с backend
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-blue-700 mt-1">{selectedTargetProject.description}</p>
             </div>
           )}
@@ -271,44 +320,95 @@ export function DataUpload() {
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           <div className="flex items-start gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
-              <FolderPlus className="text-emerald-600" size={20} />
+              <CheckCircle className="text-emerald-600" size={20} />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Создать новый проект</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Паспорт файла ВКР</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Новый проект сразу появится в верхнем выпадающем списке и станет активным.
+                Актуальный входной контракт для приложения А.
               </p>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="project-name">Название проекта</Label>
-            <Input
-              id="project-name"
-              value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value)}
-              placeholder="Например, CRM Analytics"
-            />
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="text-xs text-gray-500">Период</div>
+              <div className="mt-1 font-semibold text-gray-900">12.01.2026-29.05.2026</div>
+            </div>
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="text-xs text-gray-500">Спринты</div>
+              <div className="mt-1 font-semibold text-gray-900">20 недельных</div>
+            </div>
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="text-xs text-gray-500">Заявки</div>
+              <div className="mt-1 font-semibold text-gray-900">200</div>
+            </div>
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="text-xs text-gray-500">Участие</div>
+              <div className="mt-1 font-semibold text-gray-900">509 строк</div>
+            </div>
           </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="project-description">Описание</Label>
-            <Textarea
-              id="project-description"
-              value={newProjectDescription}
-              onChange={(e) => setNewProjectDescription(e.target.value)}
-              placeholder="Коротко опишите команду, продукт или поток данных."
-              className="min-h-24"
-            />
-          </div>
-
-          {projectError && <p className="text-sm text-red-600">{projectError}</p>}
-
-          <Button onClick={handleCreateProject} className="w-full bg-emerald-600 hover:bg-emerald-700">
-            <FolderPlus size={16} />
-            Создать проект
-          </Button>
+          <p className="text-sm text-gray-600">
+            Типы заявок: 40 консультаций, 100 ошибок, 60 доработок.
+          </p>
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center">
+            <FolderPlus className="text-sky-600" size={20} />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Создать новый проект</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Новый проект создаётся в backend и сразу появляется в верхнем списке проектов.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-[0.8fr_1.2fr_auto]">
+          <div className="space-y-2">
+            <Label htmlFor="new-project-name">Название проекта</Label>
+            <Input
+              id="new-project-name"
+              value={newProjectName}
+              onChange={(event) => setNewProjectName(event.target.value)}
+              placeholder="Например: SCRUMS июль 2026"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="new-project-description">Описание</Label>
+            <Input
+              id="new-project-description"
+              value={newProjectDescription}
+              onChange={(event) => setNewProjectDescription(event.target.value)}
+              placeholder="Кратко, какие данные будут загружаться"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              type="button"
+              onClick={() => void handleCreateProject()}
+              disabled={isCreatingProject}
+              className="w-full bg-sky-600 hover:bg-sky-700 lg:w-auto"
+            >
+              <FolderPlus size={16} />
+              {isCreatingProject ? "Создаём..." : "Создать"}
+            </Button>
+          </div>
+        </div>
+
+        {projectSuccessMessage && (
+          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+            {projectSuccessMessage}
+          </div>
+        )}
+        {projectError && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            {projectError}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -319,7 +419,7 @@ export function DataUpload() {
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Поля, необходимые для математической модели</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Чтобы проект рассчитывал `Q_i`, `Topt_i`, `EI_i`, `δ_i` и вероятности сроков, файл должен содержать следующие поля.
+                Чтобы SCRUMS рассчитывал Q_i, Topt_i, EI_i, δ_i и вероятность выполнения в пределах плана, файл должен содержать следующие поля.
               </p>
             </div>
           </div>
@@ -327,7 +427,7 @@ export function DataUpload() {
             <Button asChild variant="outline" className="border-violet-200 text-violet-700 hover:bg-violet-50">
               <a href={IMPORT_TEMPLATE_URL} target="_blank" rel="noreferrer">
                 <FileSpreadsheet size={16} />
-                Скачать шаблон .xlsx
+                Скачать шаблон SCRUMS .xlsx
               </a>
             </Button>
           </div>
@@ -360,10 +460,10 @@ export function DataUpload() {
               <Upload className="text-blue-600" size={32} />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              Загрузите Excel в проект {selectedTargetProject ? `«${selectedTargetProject.name}»` : ""}
+              Загрузите Excel-файл в SCRUMS {selectedTargetProject ? `«${selectedTargetProject.name}»` : ""}
             </h3>
             <p className="text-sm text-gray-500 mb-6">
-              Перетащите файл сюда или нажмите для выбора
+              Перетащите файл SCRUMS input Jan-Jun 2026.xlsx сюда или нажмите для выбора
             </p>
             <label className="cursor-pointer">
               <input
@@ -385,7 +485,7 @@ export function DataUpload() {
         {uploadStatus === "uploading" && (
           <div className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
             <p className="text-sm font-medium text-blue-900">
-              Файл загружается в backend и проходит валидацию шаблона.
+              Файл загружается в backend и проходит валидацию входного контракта SCRUMS.
             </p>
             <p className="mt-1 text-sm text-blue-700">
               Не закрывайте страницу, пока импорт не завершится.
@@ -401,7 +501,7 @@ export function DataUpload() {
               <p className="text-sm text-green-700 mt-1">
                 Файл {lastUploadedFile ? `«${lastUploadedFile}» ` : ""}успешно загружен в проект{" "}
                 {selectedTargetProject ? `«${selectedTargetProject.name}»` : ""}. Импортировано{" "}
-                {latestProjectUpload?.records ?? 0} записей.
+                {latestProjectUpload?.records ?? 0} строк участия специалистов.
               </p>
             </div>
           </div>
@@ -421,82 +521,101 @@ export function DataUpload() {
       </div>
 
       {/* Data Preview */}
-      {uploadStatus === "success" && (
+      {(hasData || isAnalyticsLoading) && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Предпросмотр данных</h3>
-            <p className="text-sm text-gray-500 mt-1">
-              Первые строки в формате, который нужен для расчёта модели проекта {selectedTargetProject?.name}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Актуальные данные проекта</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Первые рассчитанные строки для выбранного проекта.
+                </p>
+              </div>
+              {hasData && (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-600">
+                  {dashboard.requestCount ?? previewRows.length} заявок · {dashboard.assignmentRows ?? 0} строк участия
+                </div>
+              )}
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Task ID
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Спринт
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Story Points
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Класс
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Участники
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tplan
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tfact
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {previewRows.map((row) => (
-                  <tr key={row.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {row.id}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.sprint}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.storyPoints}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-1 text-xs font-medium rounded ${
-                          row.complexity === "XL"
-                            ? "bg-red-100 text-red-800"
-                            : row.complexity === "L"
-                            ? "bg-amber-100 text-amber-800"
-                            : row.complexity === "M"
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-green-100 text-green-800"
-                        }`}
-                      >
-                        {row.complexity}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.participants}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.plannedHours} ч
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.actualHours} ч
-                    </td>
+          {isAnalyticsLoading ? (
+            <div className="px-6 py-8 text-sm text-gray-500">
+              Загружаем актуальные данные проекта из backend...
+            </div>
+          ) : previewRows.length === 0 ? (
+            <div className="px-6 py-8 text-sm text-gray-500">
+              У проекта есть аналитика, но backend не вернул строки предпросмотра.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Заявка
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Спринт
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Story Points
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Тип заявки
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Исполнители
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tplan
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tfact
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {previewRows.map((row) => (
+                    <tr key={row.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {row.id}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {row.sprint}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {row.storyPoints}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`px-2 py-1 text-xs font-medium rounded ${
+                            row.complexity === "XL"
+                              ? "bg-red-100 text-red-800"
+                              : row.complexity === "L"
+                              ? "bg-amber-100 text-amber-800"
+                              : row.complexity === "M"
+                              ? "bg-blue-100 text-blue-800"
+                              : "bg-green-100 text-green-800"
+                          }`}
+                        >
+                          {row.complexity}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {row.participants}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {row.plannedHours} ч
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {row.actualHours} ч
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -516,7 +635,7 @@ export function DataUpload() {
           )}
           {projectUploads.length === 0 && (
             <div className="px-6 py-8 text-sm text-gray-500">
-              Для этого проекта пока нет загрузок. Создайте проект или загрузите первый Excel-файл.
+              Для этого набора пока нет загрузок. Загрузите первый Excel-файл.
             </div>
           )}
           {projectUploads.map((item) => (
@@ -539,7 +658,7 @@ export function DataUpload() {
                       {item.date}
                     </span>
                     {item.status === "success" && (
-                      <span className="text-xs text-gray-500">{item.records} записей</span>
+                      <span className="text-xs text-gray-500">{item.records} строк участия</span>
                     )}
                   </div>
                 </div>

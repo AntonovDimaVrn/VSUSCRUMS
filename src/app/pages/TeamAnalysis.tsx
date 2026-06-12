@@ -6,6 +6,8 @@ const qualificationLabel = {
   junior: "младший специалист",
   middle: "основной специалист",
   senior: "ведущий специалист",
+  analyst: "аналитик",
+  pm: "руководитель проекта",
 };
 
 function formatWholeHours(value: number) {

@@ -3,6 +3,8 @@ import { getProjectAnalytics } from "../api/backend";
 import { useProjects } from "../context/ProjectsContext";
 import { projectAnalytics } from "./projectAnalytics";
 
+const DEMO_PROJECT_ID = "scrums-vkr";
+
 export function useProjectAnalytics() {
   const { selectedProject } = useProjects();
   const [backendAnalytics, setBackendAnalytics] = useState<null | ReturnType<typeof buildFallbackAnalytics>>(null);
@@ -37,6 +39,7 @@ export function useProjectAnalytics() {
     const loadAnalytics = async () => {
       setIsLoading(true);
       setError("");
+      setBackendAnalytics(null);
 
       try {
         const analytics = await getProjectAnalytics(selectedProject.backendId!);
@@ -70,25 +73,71 @@ export function useProjectAnalytics() {
   }, [refreshKey, selectedProject?.backendId, selectedProject?.name]);
 
   const fallback = useMemo(
-    () => buildFallbackAnalytics(selectedProject?.name),
-    [selectedProject?.name],
+    () =>
+      selectedProject?.id === DEMO_PROJECT_ID
+        ? buildFallbackAnalytics(selectedProject?.name)
+        : buildEmptyAnalytics(selectedProject?.name),
+    [selectedProject?.id, selectedProject?.name],
   );
+
+  const effectiveIsLoading = isLoading || Boolean(selectedProject?.backendId && !backendAnalytics && !error);
 
   return useMemo(
     () => ({
       ...(backendAnalytics ?? fallback),
-      isLoading,
+      isLoading: effectiveIsLoading,
       error,
       isBackendDriven: Boolean(backendAnalytics),
     }),
-    [backendAnalytics, error, fallback, isLoading],
+    [backendAnalytics, effectiveIsLoading, error, fallback],
   );
 }
 
 function buildFallbackAnalytics(projectName?: string) {
   return {
-    projectName: projectName ?? "Команда мобильного приложения",
-    hasData: false,
+    projectName: projectName ?? "SCRUMS input Jan-Jun 2026",
+    hasData: true,
     ...projectAnalytics,
+  };
+}
+
+function buildEmptyAnalytics(projectName?: string) {
+  return {
+    ...projectAnalytics,
+    projectName: projectName ?? "Новый проект",
+    hasData: false,
+    dashboard: {
+      ...projectAnalytics.dashboard,
+      inputFile: undefined,
+      sprintCount: 0,
+      requestCount: 0,
+      assignmentRows: 0,
+      plannedHours: 0,
+      actualHours: 0,
+      deviationHours: 0,
+      deviationPercent: 0,
+      sprintSeries: [],
+      complexityDistribution: [],
+    },
+    sprint: {
+      ...projectAnalytics.sprint,
+      selectedSprint: undefined,
+      sprintList: [],
+      sprintCards: [],
+      taskBreakdown: [],
+      problematicTasks: [],
+      probabilityBuckets: [],
+    },
+    team: {
+      ...projectAnalytics.team,
+      totalMembers: 0,
+      overloadedCount: 0,
+      averageUtilization: 0,
+      members: [],
+      loadDistribution: [],
+      complexityByRole: [],
+    },
+    recommendations: [],
+    taskDetails: [],
   };
 }
