@@ -70,6 +70,11 @@ def round_to(value: float, digits: int = 3) -> float:
 def get_or_create_active_model_version(db: Session, project: Project) -> ModelConfigVersion:
     existing = model_config_repository.get_active(db, project.id)
     if existing is not None:
+        if set(existing.alpha_scale) != set(DEFAULT_ALPHA_SCALE):
+            existing.alpha_scale = _normalize_alpha_scale(existing.alpha_scale)
+            db.add(existing)
+            db.commit()
+            db.refresh(existing)
         return existing
 
     payload = build_default_model_payload(db, project)
@@ -133,7 +138,7 @@ def create_model_version(
 
 def restore_model_version(db: Session, project: Project, source: ModelConfigVersion) -> ModelConfigVersion:
     payload = ModelConfigVersionPayload(
-        alpha_scale=source.alpha_scale,
+        alpha_scale=_normalize_alpha_scale(source.alpha_scale),
         beta=float(source.beta),
         work_norms=source.work_norms,
         formulas=source.formulas,
@@ -220,10 +225,18 @@ def _weighted_qualification_from_assignments(
     if total_hours <= 0:
         return 1.0
     weighted_hours = sum(
-        float(assignment.participant_hours) * alpha_scale[assignment.qualification.value]
+        float(assignment.participant_hours)
+        * alpha_scale.get(assignment.qualification.value, DEFAULT_ALPHA_SCALE[assignment.qualification.value])
         for assignment in assignments
     )
     return weighted_hours / total_hours
+
+
+def _normalize_alpha_scale(alpha_scale: dict[str, float]) -> dict[str, float]:
+    return {
+        key: float(alpha_scale.get(key, default_value))
+        for key, default_value in DEFAULT_ALPHA_SCALE.items()
+    }
 
 
 def _validate_payload(payload: ModelConfigVersionPayload) -> None:
@@ -231,10 +244,10 @@ def _validate_payload(payload: ModelConfigVersionPayload) -> None:
     expected_complexities = set(DEFAULT_WORK_NORMS)
     expected_formulas = set(DEFAULT_FORMULAS)
 
-    if set(payload.alpha_scale) != expected_roles:
-        raise ValueError("alpha_scale должен содержать junior, middle, senior, analyst, pm.")
     if set(payload.work_norms) != expected_complexities:
         raise ValueError("work_norms должен содержать S, M, L, XL.")
     missing_formulas = expected_formulas - set(payload.formulas)
     if missing_formulas:
         raise ValueError(f"Отсутствуют формулы: {', '.join(sorted(missing_formulas))}.")
+    if set(payload.alpha_scale) != expected_roles:
+        raise ValueError("alpha_scale должен содержать junior, middle, senior, analyst, pm.")
