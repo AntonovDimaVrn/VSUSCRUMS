@@ -1,7 +1,7 @@
 [project]
-name = "scrummetrics-backend"
+name = "scrums-backend"
 version = "0.1.0"
-description = "Backend for ScrumMetrics analytics platform"
+description = "Backend for SCRUMS analytics platform"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi==0.116.1",

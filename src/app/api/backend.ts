@@ -283,7 +283,7 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     throw new BackendApiError(
       response.status,
-      extractErrorMessage(payload, "Backend request failed."),
+      extractErrorMessage(payload, "Запрос к серверу не выполнен."),
     );
   }
 

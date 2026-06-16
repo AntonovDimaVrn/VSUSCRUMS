@@ -20,4 +20,4 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"message": "SCRUMS backend is running"}
+    return {"message": "Сервер SCRUMS запущен"}

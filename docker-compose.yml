@@ -1,17 +1,17 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: scrummetrics-db
+    container_name: scrums-db
     environment:
-      POSTGRES_DB: scrummetrics
-      POSTGRES_USER: scrummetrics
-      POSTGRES_PASSWORD: scrummetrics
+      POSTGRES_DB: scrums
+      POSTGRES_USER: scrums
+      POSTGRES_PASSWORD: scrums
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scrummetrics -d scrummetrics"]
+      test: ["CMD-SHELL", "pg_isready -U scrums -d scrums"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -19,7 +19,7 @@ services:
   backend:
     build:
       context: ./backend
-    container_name: scrummetrics-backend
+    container_name: scrums-backend
     env_file:
       - ./backend/.env
     ports:

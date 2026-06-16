@@ -61,8 +61,7 @@ export function Recommendations() {
         <div className="rounded-xl border border-gray-200 bg-white p-6">
           <h2 className="text-2xl font-semibold text-gray-900">Рекомендации</h2>
           <p className="mt-3 text-sm text-gray-500">
-            Рекомендации появятся после первой загрузки Excel по проекту {projectName}, когда
-            backend рассчитает реальные метрики по вашей модели.
+            Рекомендации появятся после первой загрузки Excel по проекту {projectName}.
           </p>
         </div>
       </div>
@@ -74,7 +73,7 @@ export function Recommendations() {
       <div>
         <h2 className="text-2xl font-semibold text-gray-900">Рекомендации</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Автоматически сформированные рекомендации по модели для проекта {projectName}
+          Рекомендации по проекту {projectName}
         </p>
       </div>
 
@@ -87,7 +86,7 @@ export function Recommendations() {
             <h3 className="text-sm text-gray-500">Высокий приоритет</h3>
           </div>
           <p className="text-3xl font-semibold text-gray-900">{highPriority.length}</p>
-          <p className="text-xs text-gray-500 mt-1">Требуют ближайшего управленческого решения</p>
+          <p className="text-xs text-gray-500 mt-1">Лучше разобрать в первую очередь</p>
         </div>
 
         <div className="bg-white rounded-xl p-6 border border-gray-200">
@@ -98,7 +97,7 @@ export function Recommendations() {
             <h3 className="text-sm text-gray-500">Средний приоритет</h3>
           </div>
           <p className="text-3xl font-semibold text-gray-900">{mediumPriority.length}</p>
-          <p className="text-xs text-gray-500 mt-1">Лучше учесть в следующем цикле планирования</p>
+          <p className="text-xs text-gray-500 mt-1">Можно учесть при следующем планировании</p>
         </div>
 
         <div className="bg-white rounded-xl p-6 border border-gray-200">
@@ -109,7 +108,7 @@ export function Recommendations() {
             <h3 className="text-sm text-gray-500">Низкий приоритет</h3>
           </div>
           <p className="text-3xl font-semibold text-gray-900">{lowPriority.length}</p>
-          <p className="text-xs text-gray-500 mt-1">Можно внедрять без срочного дедлайна</p>
+          <p className="text-xs text-gray-500 mt-1">Не требуют срочных действий</p>
         </div>
       </div>
 

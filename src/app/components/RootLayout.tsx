@@ -29,12 +29,12 @@ export function RootLayout() {
   const { projects, selectedProject, selectProject } = useProjects();
 
   const navItems = [
-    { path: "/", icon: LayoutDashboard, label: "Обзор" },
-    { path: "/upload", icon: Upload, label: "Загрузка данных" },
+    { path: "/", icon: LayoutDashboard, label: "Обзор аналитики" },
+    { path: "/upload", icon: Upload, label: "Загрузка Excel" },
+    { path: "/sprint", icon: Calendar, label: "Анализ спринтов" },
     { path: "/team", icon: Users, label: "Анализ команды" },
-    { path: "/sprint", icon: Calendar, label: "Анализ спринта" },
+    { path: "/tasks", icon: ListTodo, label: "Детализация заявок" },
     { path: "/recommendations", icon: Lightbulb, label: "Рекомендации" },
-    { path: "/tasks", icon: ListTodo, label: "Детализация задач" },
     { path: "/model", icon: Sigma, label: "Математическая модель" },
   ];
 
@@ -50,15 +50,12 @@ export function RootLayout() {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-        {/* Logo */}
+        <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-6 border-b border-gray-200">
-          <h1 className="text-xl font-semibold text-gray-900">ScrumMetrics</h1>
-          <p className="text-sm text-gray-500 mt-1">Платформа аналитики</p>
+          <h1 className="text-xl font-semibold text-gray-900">SCRUMS</h1>
+          <p className="text-sm text-gray-500 mt-1">Учёт трудозатрат</p>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -81,7 +78,6 @@ export function RootLayout() {
           })}
         </nav>
 
-        {/* User Section */}
         <div className="p-4 border-t border-gray-200">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -91,7 +87,7 @@ export function RootLayout() {
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-gray-900">Аналитик</p>
-                  <p className="text-xs text-gray-500">analyst@team.com</p>
+                  <p className="text-xs text-gray-500">scrums@project.local</p>
                 </div>
                 <ChevronDown size={16} className="text-gray-400" />
               </button>
@@ -108,9 +104,7 @@ export function RootLayout() {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
         <header className="bg-white border-b border-gray-200 px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -154,7 +148,6 @@ export function RootLayout() {
           </div>
         </header>
 
-        {/* Page Content */}
         <div className="flex-1 overflow-auto">
           <Outlet />
         </div>

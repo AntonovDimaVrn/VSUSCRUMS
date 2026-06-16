@@ -1,4 +1,4 @@
-"""Initial backend schema
+"""Начальная схема сервера
 
 Revision ID: 20260524_0001
 Revises:
@@ -21,8 +21,6 @@ def upgrade() -> None:
         "junior",
         "middle",
         "senior",
-        "analyst",
-        "pm",
         name="qualificationlevel",
     )
     complexity_enum = sa.Enum("S", "M", "L", "XL", name="complexityclass")

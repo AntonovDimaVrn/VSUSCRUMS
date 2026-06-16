@@ -11,8 +11,6 @@ class QualificationLevel(str, Enum):
     junior = "junior"
     middle = "middle"
     senior = "senior"
-    analyst = "analyst"
-    pm = "pm"
 
 
 class ComplexityClass(str, Enum):

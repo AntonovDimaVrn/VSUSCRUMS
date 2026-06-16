@@ -2,15 +2,30 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Calculator, Filter, GitBranch, Sigma, Users } from "lucide-react";
 import { ensureBackendProjectId, getProjectTaskDetails, type BackendTaskDetails } from "../api/backend";
 import { useProjects } from "../context/ProjectsContext";
+import { useProjectAnalytics } from "../model/useProjectAnalytics";
 
 type DetailedTask = BackendTaskDetails["tasks"][number];
 
+const statusLabel: Record<string, string> = {
+  completed: "выполнена",
+  in_progress: "в работе",
+  blocked: "заблокирована",
+};
+
+const qualificationLabel: Record<string, string> = {
+  junior: "младший специалист",
+  middle: "основной специалист",
+  senior: "ведущий специалист",
+};
+
 export function TaskDetails() {
   const { selectedProject, linkProjectToBackend } = useProjects();
+  const fallbackAnalytics = useProjectAnalytics();
   const [payload, setPayload] = useState<BackendTaskDetails | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedSprint, setSelectedSprint] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
+  const [selectedType, setSelectedType] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -38,7 +53,7 @@ export function TaskDetails() {
           setError(
             nextError instanceof Error
               ? nextError.message
-              : "Не удалось загрузить детализацию задач проекта.",
+              : "Не удалось загрузить детализацию заявок проекта.",
           );
         }
       } finally {
@@ -55,18 +70,26 @@ export function TaskDetails() {
     };
   }, [linkProjectToBackend, selectedProject]);
 
+  const effectivePayload = payload ?? buildFallbackTaskDetails(fallbackAnalytics);
+
   const sprintOptions = useMemo(() => {
-    const values = new Set(payload?.tasks.map((task) => task.sprintName) ?? []);
+    const values = new Set(effectivePayload?.tasks.map((task) => task.sprintName) ?? []);
     return ["all", ...Array.from(values)];
-  }, [payload?.tasks]);
+  }, [effectivePayload?.tasks]);
+
+  const typeOptions = useMemo(() => {
+    const values = new Set((effectivePayload?.tasks ?? []).map((task) => task.area).filter(Boolean));
+    return ["all", ...Array.from(values)] as string[];
+  }, [effectivePayload?.tasks]);
 
   const filteredTasks = useMemo(() => {
-    return (payload?.tasks ?? []).filter((task) => {
+    return (effectivePayload?.tasks ?? []).filter((task) => {
       const sprintMatch = selectedSprint === "all" || task.sprintName === selectedSprint;
       const statusMatch = selectedStatus === "all" || task.status === selectedStatus;
-      return sprintMatch && statusMatch;
+      const typeMatch = selectedType === "all" || task.area === selectedType;
+      return sprintMatch && statusMatch && typeMatch;
     });
-  }, [payload?.tasks, selectedSprint, selectedStatus]);
+  }, [effectivePayload?.tasks, selectedSprint, selectedStatus, selectedType]);
 
   useEffect(() => {
     if (!filteredTasks.some((task) => task.id === selectedTaskId)) {
@@ -77,21 +100,17 @@ export function TaskDetails() {
   const selectedTask = filteredTasks.find((task) => task.id === selectedTaskId);
 
   if (isLoading) {
-    return <div className="p-8 text-sm text-gray-500">Загружаем детализацию задач...</div>;
+    return <div className="p-8 text-sm text-gray-500">Загружаем детализацию заявок...</div>;
   }
 
-  if (error) {
-    return <div className="p-8 text-sm text-red-600">Ошибка: {error}</div>;
-  }
-
-  if (!payload?.hasData || payload.tasks.length === 0) {
+  if (!effectivePayload?.hasData || effectivePayload.tasks.length === 0) {
     return (
       <div className="p-8">
         <div className="rounded-xl border border-gray-200 bg-white p-6">
-          <h2 className="text-2xl font-semibold text-gray-900">Детализация задач</h2>
+          <h2 className="text-2xl font-semibold text-gray-900">Детализация заявок</h2>
           <p className="mt-3 text-sm text-gray-500">
-            Для проекта {selectedProject?.name ?? "без названия"} пока нет рассчитанных задач.
-            Загрузите Excel-файл, и здесь появятся промежуточные расчёты по каждой задаче.
+            Для проекта {selectedProject?.name ?? "без названия"} пока нет рассчитанных заявок.
+            Загрузите Excel-файл, и здесь появятся промежуточные расчёты по каждой заявке.
           </p>
         </div>
       </div>
@@ -101,10 +120,10 @@ export function TaskDetails() {
   return (
     <div className="space-y-6 p-8">
       <div>
-        <h2 className="text-2xl font-semibold text-gray-900">Детализация задач</h2>
+        <h2 className="text-2xl font-semibold text-gray-900">Детализация заявок</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Промежуточные расчёты модели по задачам проекта {payload.projectName}. Активная версия
-          модели: #{payload.modelVersionNumber}.
+          Расчёты по заявкам проекта {effectivePayload.projectName}. Версия модели:
+          #{effectivePayload.modelVersionNumber}.
         </p>
       </div>
 
@@ -115,7 +134,7 @@ export function TaskDetails() {
               <Filter className="text-blue-600" size={18} />
               <h3 className="text-lg font-semibold text-gray-900">Фильтры</h3>
             </div>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+            <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-1">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Спринт</label>
                 <select
@@ -131,6 +150,20 @@ export function TaskDetails() {
                 </select>
               </div>
               <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Тип заявки</label>
+                <select
+                  value={selectedType}
+                  onChange={(event) => setSelectedType(event.target.value)}
+                  className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                >
+                  {typeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "all" ? "Все типы" : option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Статус</label>
                 <select
                   value={selectedStatus}
@@ -138,9 +171,9 @@ export function TaskDetails() {
                   className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 >
                   <option value="all">Все статусы</option>
-                  <option value="completed">completed</option>
-                  <option value="in_progress">in_progress</option>
-                  <option value="blocked">blocked</option>
+                  <option value="completed">выполнена</option>
+                  <option value="in_progress">в работе</option>
+                  <option value="blocked">заблокирована</option>
                 </select>
               </div>
             </div>
@@ -148,9 +181,9 @@ export function TaskDetails() {
 
           <div className="rounded-xl border border-gray-200 bg-white">
             <div className="border-b border-gray-200 px-6 py-4">
-              <h3 className="text-lg font-semibold text-gray-900">Задачи</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Заявки</h3>
               <p className="mt-1 text-sm text-gray-500">
-                Выберите задачу, чтобы увидеть все расчёты по формуле.
+                Выберите заявку, чтобы посмотреть расчёты.
               </p>
             </div>
             <div className="max-h-[720px] divide-y divide-gray-200 overflow-y-auto">
@@ -189,7 +222,7 @@ export function TaskDetails() {
                           : "bg-amber-100 text-amber-800"
                       }`}
                     >
-                      {task.status}
+                      {statusLabel[task.status] ?? task.status}
                     </span>
                   </div>
                 </button>
@@ -215,7 +248,7 @@ export function TaskDetails() {
                     </div>
                     <p className="mt-2 text-sm text-gray-700">{selectedTask.title}</p>
                     <p className="mt-1 text-xs text-gray-500">
-                      {selectedTask.sprintName} · area: {selectedTask.area ?? "n/a"}
+                      {selectedTask.sprintName} · тип заявки: {selectedTask.area ?? "не задан"}
                     </p>
                   </div>
                   <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
@@ -229,7 +262,7 @@ export function TaskDetails() {
                   icon={<Sigma className="text-blue-600" size={18} />}
                   title="Q_i"
                   value={selectedTask.modelDetails.outputs.weightedQualification}
-                  note="Взвешенная квалификация команды задачи"
+                  note="Взвешенная квалификация исполнителей заявки"
                   formula={selectedTask.modelDetails.formulas.weighted_qualification}
                 />
                 <MetricCard
@@ -250,7 +283,7 @@ export function TaskDetails() {
                   icon={<GitBranch className="text-amber-600" size={18} />}
                   title="EI_i"
                   value={selectedTask.modelDetails.outputs.efficiencyIndex}
-                  note="Индекс эффективности задачи"
+                  note="Индекс эффективности заявки"
                   formula={selectedTask.modelDetails.formulas.efficiency_index}
                 />
               </div>
@@ -297,21 +330,21 @@ export function TaskDetails() {
                     value={`${Math.round(selectedTask.modelDetails.outputs.onTimeProbability * 100)}%`}
                   />
                   <KeyValue
-                    label="External dependency"
+                    label="Внешняя зависимость"
                     value={selectedTask.externalDependency ? "Да" : "Нет"}
                   />
                 </div>
               </div>
 
               <div className="rounded-xl border border-gray-200 bg-white p-6">
-                <h3 className="text-lg font-semibold text-gray-900">Участники задачи</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Участники заявки</h3>
                 <div className="mt-5 overflow-x-auto">
                   <table className="w-full">
                     <thead className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
                       <tr>
                         <th className="py-3 pr-4">Имя</th>
                         <th className="py-3 pr-4">Роль</th>
-                        <th className="py-3 pr-4">Qualification</th>
+                        <th className="py-3 pr-4">Квалификация</th>
                         <th className="py-3 pr-4">α(q_j)</th>
                         <th className="py-3">n_ij</th>
                       </tr>
@@ -321,7 +354,9 @@ export function TaskDetails() {
                         <tr key={`${selectedTask.id}-${participant.name}`}>
                           <td className="py-3 pr-4 text-sm text-gray-900">{participant.name}</td>
                           <td className="py-3 pr-4 text-sm text-gray-600">{participant.role}</td>
-                          <td className="py-3 pr-4 text-sm text-gray-600">{participant.qualification}</td>
+                          <td className="py-3 pr-4 text-sm text-gray-600">
+                            {qualificationLabel[participant.qualification] ?? participant.qualification}
+                          </td>
                           <td className="py-3 pr-4 text-sm text-gray-600">{participant.alpha}</td>
                           <td className="py-3 text-sm text-gray-600">{participant.hours} ч</td>
                         </tr>
@@ -347,13 +382,63 @@ export function TaskDetails() {
             </>
           ) : (
             <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
-              Нет задач под выбранные фильтры.
+              Нет заявок под выбранные фильтры.
             </div>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+function buildFallbackTaskDetails(analytics: ReturnType<typeof useProjectAnalytics>): BackendTaskDetails | null {
+  if (!analytics.hasData) return null;
+
+  const tasks = analytics.taskDetails ?? [];
+  if (!tasks.length) return null;
+
+  return {
+    hasData: true,
+    projectName: analytics.projectName,
+    modelVersionNumber: 1,
+    formulas: analytics.formulas ?? {},
+    tasks: tasks.map((task) => {
+      const params = analytics.logNormalParams[task.complexity];
+      return {
+        ...task,
+        sprintId: null,
+        area: task.area,
+        modelDetails: {
+          versionNumber: 1,
+          inputs: {
+            storyPoints: task.storyPoints,
+            complexityClass: task.complexity,
+            plannedHours: task.plannedHours,
+            actualHours: task.actualHours,
+            participantCount: task.participantCount,
+            totalParticipantHours: task.participants.reduce((sum, participant) => sum + participant.hours, 0),
+            weightedAlphaHours: task.participants.reduce(
+              (sum, participant) => sum + participant.hours * participant.alpha,
+              0,
+            ),
+            workNorm: analytics.workNorms[task.complexity],
+            beta: analytics.beta,
+            logNormalMu: params.mu,
+            logNormalSigma: params.sigma,
+          },
+          outputs: {
+            weightedQualification: task.weightedQualification,
+            communicationFactor: task.communicationFactor,
+            optimalHours: task.optimalHours,
+            efficiencyIndex: task.efficiencyIndex,
+            deviationPercent: task.deviationPercent,
+            onTimeProbability: task.onTimeProbability,
+          },
+          formulas: analytics.formulas ?? {},
+        },
+      };
+    }),
+  };
 }
 
 function MetricCard({

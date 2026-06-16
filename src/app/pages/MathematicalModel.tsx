@@ -30,11 +30,9 @@ import {
 } from "../model/formulaWorkbench";
 
 const coefficientLabels: Record<string, string> = {
-  junior: "alpha(junior)",
-  middle: "alpha(middle)",
-  senior: "alpha(senior)",
-  analyst: "alpha(analyst)",
-  pm: "alpha(pm)",
+  junior: "alpha(младший специалист)",
+  middle: "alpha(основной специалист)",
+  senior: "alpha(ведущий специалист)",
   S: "w(S)",
   M: "w(M)",
   L: "w(L)",
@@ -346,9 +344,8 @@ export function MathematicalModel() {
       <div>
         <h2 className="text-2xl font-semibold text-gray-900">Математическая модель</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Настраивайте формулы и коэффициенты проекта {selectedProject.name}. Каждое сохранение
-          создаёт новую версию, попадает в историю и сразу влияет на расчёт метрик после загрузки
-          данных.
+          Формулы и коэффициенты проекта {selectedProject.name}. После сохранения создаётся
+          новая версия модели.
         </p>
       </div>
 
@@ -366,9 +363,9 @@ export function MathematicalModel() {
       <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
         <div className="space-y-6">
           <div className="rounded-xl border border-gray-200 bg-white p-6">
-            <h3 className="text-lg font-semibold text-gray-900">Коэффициенты производительности</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Коэффициенты квалификации</h3>
             <p className="mt-1 text-sm text-gray-500">
-              Эти коэффициенты участвуют в расчёте взвешенной квалификации команды задачи.
+              Коэффициенты нужны для расчёта квалификации исполнителей заявки.
             </p>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               {orderedAlphaKeys.map((key) => (
@@ -389,8 +386,7 @@ export function MathematicalModel() {
           <div className="rounded-xl border border-gray-200 bg-white p-6">
             <h3 className="text-lg font-semibold text-gray-900">Нормативы и β</h3>
             <p className="mt-1 text-sm text-gray-500">
-              Здесь регулируются коммуникационные потери и базовая трудоёмкость Story Points по
-              классам сложности.
+              Здесь задаются коммуникационные потери и базовая трудоёмкость Story Points.
             </p>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
@@ -429,8 +425,8 @@ export function MathematicalModel() {
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Конструктор формул</h3>
               <p className="mt-1 text-sm text-gray-500">
-                Backend использует эти выражения напрямую. Ниже можно посмотреть допустимые
-                переменные, вставить их в формулу и увидеть живой preview на реальной задаче.
+                Эти выражения используются при расчёте. Ниже можно вставить переменные и
+                проверить формулу на реальной заявке.
               </p>
             </div>
 
@@ -464,7 +460,7 @@ export function MathematicalModel() {
                               : "bg-violet-100 text-violet-800"
                           }`}
                         >
-                          {definition.scope === "task" ? "по задаче" : "по спринту"}
+                          {definition.scope === "task" ? "по заявке" : "по спринту"}
                         </span>
                       </div>
                       <p className="mt-2 text-xs text-gray-500">{definition.description}</p>
@@ -489,7 +485,7 @@ export function MathematicalModel() {
                           }`}
                         >
                           {activeFormulaDefinition.scope === "task"
-                            ? "Расчёт по задаче"
+                            ? "Расчёт по заявке"
                             : "Расчёт по спринту"}
                         </span>
                       </div>
@@ -517,7 +513,7 @@ export function MathematicalModel() {
 
                   <div className="grid gap-6 lg:grid-cols-2">
                     <div className="space-y-5">
-                      <TokenSection title="Переменные" description="Нажми, чтобы вставить переменную в текущую позицию курсора.">
+                      <TokenSection title="Переменные" description="Нажмите, чтобы вставить переменную в формулу.">
                         <div className="flex flex-wrap gap-2">
                           {helperVariableTokens.map((token) => (
                             <TokenButton
@@ -529,7 +525,7 @@ export function MathematicalModel() {
                         </div>
                       </TokenSection>
 
-                      <TokenSection title="Операторы" description="Базовые математические операции для сборки выражения.">
+                      <TokenSection title="Операторы" description="Математические операции для формулы.">
                         <div className="flex flex-wrap gap-2">
                           {formulaOperatorTokens.map((token) => (
                             <TokenButton
@@ -541,7 +537,7 @@ export function MathematicalModel() {
                         </div>
                       </TokenSection>
 
-                      <TokenSection title="Функции" description="Разрешённые функции preview и backend-движка.">
+                      <TokenSection title="Функции" description="Функции, которые можно использовать в формуле.">
                         <div className="flex flex-wrap gap-2">
                           {formulaFunctionTokens.map((token) => (
                             <TokenButton
@@ -558,9 +554,9 @@ export function MathematicalModel() {
                       <div className="rounded-xl border border-gray-200 bg-white p-4">
                         <div className="flex items-center justify-between gap-4">
                           <div>
-                            <h5 className="text-sm font-semibold text-gray-900">Живой preview</h5>
+                            <h5 className="text-sm font-semibold text-gray-900">Проверка формулы</h5>
                             <p className="mt-1 text-xs text-gray-500">
-                              Подстановка идёт по реальной задаче проекта.
+                              Значения берутся из выбранной заявки.
                             </p>
                           </div>
                           <div className="min-w-0 flex-1">
@@ -592,7 +588,7 @@ export function MathematicalModel() {
 
                             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
                               <div className="text-xs font-medium uppercase tracking-wide text-blue-700">
-                                Результат preview
+                                Результат проверки
                               </div>
                               {previewResult.error ? (
                                 <p className="mt-2 text-sm text-red-700">{previewResult.error}</p>
@@ -635,7 +631,7 @@ export function MathematicalModel() {
                           </div>
                         ) : (
                           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                            Живой preview появится после загрузки Excel-данных в проект.
+                            Проверка появится после загрузки Excel-данных в проект.
                           </div>
                         )}
                       </div>
@@ -645,7 +641,7 @@ export function MathematicalModel() {
                   <div className="rounded-xl border border-gray-200 bg-white p-4">
                     <h5 className="text-sm font-semibold text-gray-900">Справочник переменных</h5>
                     <p className="mt-1 text-xs text-gray-500">
-                      Здесь видно, какие переменные допустимы именно для выбранной формулы.
+                      Переменные, которые можно использовать в выбранной формуле.
                     </p>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       {helperVariableTokens.map((token) => {
@@ -688,7 +684,7 @@ export function MathematicalModel() {
                 id="change-note"
                 value={changeNote}
                 onChange={(event) => setChangeNote(event.target.value)}
-                placeholder="Например: повысили beta и скорректировали w(L) после новых sprint-данных."
+                placeholder="Например: изменил beta и w(L) после новых данных по спринтам."
                 className="min-h-24"
               />
             </div>
@@ -715,7 +711,7 @@ export function MathematicalModel() {
           <div className="rounded-xl border border-gray-200 bg-white p-6">
             <h3 className="text-lg font-semibold text-gray-900">История версий</h3>
             <p className="mt-1 text-sm text-gray-500">
-              Любую предыдущую версию можно восстановить как новую активную конфигурацию.
+              Предыдущую версию можно восстановить как активную.
             </p>
             <div className="mt-5 space-y-3">
               {history.map((item) => (

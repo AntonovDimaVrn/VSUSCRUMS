@@ -12,7 +12,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models.project import Project
+from app.db.models.project import Project, ProjectMember
 from app.db.models.sprint import Sprint
 from app.db.models.task import ComplexityClass, QualificationLevel, Task, TaskAssignment, TaskStatus
 from app.db.models.upload import Upload, UploadStatus
@@ -25,7 +25,9 @@ REQUIRED_COLUMNS = [
     "complexity_class",
     "planned_hours",
     "actual_hours",
+    "area",
     "participant_name",
+    "participant_role",
     "qualification",
     "participant_hours",
 ]
@@ -33,7 +35,6 @@ REQUIRED_COLUMNS = [
 OPTIONAL_COLUMNS = [
     "task_title",
     "status",
-    "area",
     "external_dependency",
     "sprint_start",
     "sprint_end",
@@ -41,61 +42,64 @@ OPTIONAL_COLUMNS = [
 
 TEMPLATE_SAMPLE_ROWS = [
     ImportTemplateRow(
-        task_id="TASK-601",
-        task_title="Smart backlog planner",
-        sprint="Спринт 6",
-        story_points=13,
-        complexity_class=ComplexityClass.XL,
-        planned_hours=54,
-        actual_hours=49,
+        task_id="SCRUMS-001",
+        task_title="Консультация пользователя по работе сервиса",
+        sprint="Спринт 1",
+        story_points=2,
+        complexity_class=ComplexityClass.S,
+        planned_hours=18,
+        actual_hours=20.1,
         participant_name="Анна Смирнова",
+        participant_role="руководитель проекта",
         qualification=QualificationLevel.senior,
+        participant_hours=8.4,
+        status=TaskStatus.completed,
+        area="Консультация",
+        external_dependency=False,
+        sprint_start=date(2026, 1, 12),
+        sprint_end=date(2026, 1, 16),
+    ),
+    ImportTemplateRow(
+        task_id="SCRUMS-001",
+        task_title="Консультация пользователя по работе сервиса",
+        sprint="Спринт 1",
+        story_points=2,
+        complexity_class=ComplexityClass.S,
+        planned_hours=18,
+        actual_hours=20.1,
+        participant_name="Иван Иванов",
+        participant_role="разработчик",
+        qualification=QualificationLevel.middle,
+        participant_hours=6.0,
+        status=TaskStatus.completed,
+        area="Консультация",
+        external_dependency=False,
+        sprint_start=date(2026, 1, 12),
+        sprint_end=date(2026, 1, 16),
+    ),
+    ImportTemplateRow(
+        task_id="SCRUMS-041",
+        task_title="Исправление ошибки в заявке пользователя",
+        sprint="Спринт 5",
+        story_points=3,
+        complexity_class=ComplexityClass.M,
+        planned_hours=39.5,
+        actual_hours=43.1,
+        participant_name="Елена Сидорова",
+        participant_role="аналитик",
+        qualification=QualificationLevel.middle,
         participant_hours=12,
         status=TaskStatus.completed,
-        area="Analytics",
+        area="Ошибка",
         external_dependency=False,
-        sprint_start=date(2026, 4, 20),
-        sprint_end=date(2026, 5, 3),
-    ),
-    ImportTemplateRow(
-        task_id="TASK-601",
-        task_title="Smart backlog planner",
-        sprint="Спринт 6",
-        story_points=13,
-        complexity_class=ComplexityClass.XL,
-        planned_hours=54,
-        actual_hours=49,
-        participant_name="Иван Иванов",
-        qualification=QualificationLevel.senior,
-        participant_hours=14,
-        status=TaskStatus.completed,
-        area="Analytics",
-        external_dependency=False,
-        sprint_start=date(2026, 4, 20),
-        sprint_end=date(2026, 5, 3),
-    ),
-    ImportTemplateRow(
-        task_id="TASK-601",
-        task_title="Smart backlog planner",
-        sprint="Спринт 6",
-        story_points=13,
-        complexity_class=ComplexityClass.XL,
-        planned_hours=54,
-        actual_hours=49,
-        participant_name="Елена Сидорова",
-        qualification=QualificationLevel.analyst,
-        participant_hours=10,
-        status=TaskStatus.completed,
-        area="Analytics",
-        external_dependency=False,
-        sprint_start=date(2026, 4, 20),
-        sprint_end=date(2026, 5, 3),
+        sprint_start=date(2026, 2, 9),
+        sprint_end=date(2026, 2, 13),
     ),
 ]
 
 UPLOAD_STORAGE_DIR = Path("/app/storage/uploads")
 TEMPLATE_DIR = Path("/app/templates")
-TEMPLATE_FILE_PATH = TEMPLATE_DIR / "scrummetrics_import_template.xlsx"
+TEMPLATE_FILE_PATH = TEMPLATE_DIR / "scrums_input_template.xlsx"
 
 
 class ExcelImportError(Exception):
@@ -105,6 +109,7 @@ class ExcelImportError(Exception):
 @dataclass
 class AssignmentRow:
     participant_name: str
+    participant_role: str
     qualification: QualificationLevel
     participant_hours: Decimal
 
@@ -244,6 +249,7 @@ def _parse_workbook(content: bytes) -> list[ParsedTask]:
         planned_hours = _get_required_decimal(row, "planned_hours", row_index)
         actual_hours = _get_required_decimal(row, "actual_hours", row_index)
         participant_name = _get_required_string(row, "participant_name", row_index)
+        participant_role = _get_required_string(row, "participant_role", row_index)
         participant_hours = _get_required_decimal(row, "participant_hours", row_index)
         complexity_class = _parse_complexity(row.get("complexity_class"), row_index)
         qualification = _parse_qualification(row.get("qualification"), row_index)
@@ -252,7 +258,7 @@ def _parse_workbook(content: bytes) -> list[ParsedTask]:
         sprint_start = _parse_date(row.get("sprint_start"), row_index)
         sprint_end = _parse_date(row.get("sprint_end"), row_index)
         task_title = _get_optional_string(row, "task_title")
-        area = _get_optional_string(row, "area")
+        area = _get_required_string(row, "area", row_index)
 
         parsed_row = ParsedTask(
             task_id=task_id,
@@ -279,6 +285,7 @@ def _parse_workbook(content: bytes) -> list[ParsedTask]:
         existing.assignments.append(
             AssignmentRow(
                 participant_name=participant_name,
+                participant_role=participant_role,
                 qualification=qualification,
                 participant_hours=participant_hours,
             )
@@ -286,7 +293,7 @@ def _parse_workbook(content: bytes) -> list[ParsedTask]:
 
     parsed_tasks = list(grouped.values())
     if not parsed_tasks:
-        raise ExcelImportError("После чтения файла не найдено ни одной строки с задачами.")
+        raise ExcelImportError("После чтения файла не найдено ни одной строки с заявками.")
 
     return parsed_tasks
 
@@ -307,6 +314,10 @@ def _upsert_parsed_tasks(db: Session, project: Project, parsed_tasks: list[Parse
             .where(Task.project_id == project.id, Task.external_task_id.in_([task.task_id for task in parsed_tasks]))
             .options(selectinload(Task.assignments))
         ).all()
+    }
+    existing_members = {
+        member.name: member
+        for member in db.scalars(select(ProjectMember).where(ProjectMember.project_id == project.id)).all()
     }
 
     created_tasks = 0
@@ -359,6 +370,21 @@ def _upsert_parsed_tasks(db: Session, project: Project, parsed_tasks: list[Parse
         task.external_dependency = parsed_task.external_dependency
 
         for assignment in parsed_task.assignments:
+            member = existing_members.get(assignment.participant_name)
+            if member is None:
+                member = ProjectMember(
+                    project_id=project.id,
+                    name=assignment.participant_name,
+                    role=assignment.participant_role,
+                    qualification=assignment.qualification,
+                    capacity_hours=40,
+                )
+                db.add(member)
+                existing_members[assignment.participant_name] = member
+            else:
+                member.role = assignment.participant_role
+                member.qualification = assignment.qualification
+
             task.assignments.append(
                 TaskAssignment(
                     participant_name=assignment.participant_name,
@@ -396,7 +422,7 @@ def _assert_task_consistency(existing: ParsedTask, incoming: ParsedTask, row_ind
     for field_name, left, right in fields_to_compare:
         if left != right:
             raise ExcelImportError(
-                f"Строка {row_index}: у задачи {existing.task_id} поле {field_name} отличается между строками."
+                f"Строка {row_index}: у заявки {existing.task_id} поле {field_name} отличается между строками."
             )
 
 
@@ -442,7 +468,7 @@ def _parse_qualification(value: Any, row_index: int) -> QualificationLevel:
         return QualificationLevel(str(value).strip().lower())
     except Exception as exc:
         raise ExcelImportError(
-            f"Строка {row_index}: qualification должен быть одним из junior, middle, senior, analyst, pm."
+            f"Строка {row_index}: qualification должен быть одним из junior, middle, senior."
         ) from exc
 
 

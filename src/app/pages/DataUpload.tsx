@@ -90,7 +90,7 @@ export function DataUpload() {
       } catch {
         if (!isCancelled && uploadStatus === "idle") {
           setUploadErrorMessage(
-            "Не удалось загрузить историю импортов с backend. Проверьте, что сервис доступен на localhost:8000.",
+            "Не удалось загрузить историю импортов с сервера. Проверьте localhost:8000.",
           );
         }
       } finally {
@@ -145,7 +145,7 @@ export function DataUpload() {
       const message =
         error instanceof BackendApiError
           ? error.message
-          : "Не удалось загрузить файл. Проверьте backend и формат Excel-шаблона.";
+          : "Не удалось загрузить файл. Проверьте сервер и формат Excel-шаблона.";
       setUploadErrorMessage(message);
       setUploadStatus("error");
     }
@@ -235,18 +235,18 @@ export function DataUpload() {
             await syncProjectsFromBackend();
             setNewProjectName("");
             setNewProjectDescription("");
-            setProjectSuccessMessage("Проект уже был в backend, я добавил его в список и выбрал.");
+            setProjectSuccessMessage("Проект уже был на сервере, он добавлен в список и выбран.");
           } else {
-            setProjectError("Backend сообщил, что проект уже существует, но не вернул его в списке.");
+            setProjectError("Сервер сообщил, что проект уже существует, но не вернул его в списке.");
           }
         } catch {
-          setProjectError("Проект уже существует, но список проектов с backend сейчас не загрузился.");
+          setProjectError("Проект уже существует, но список проектов с сервера сейчас не загрузился.");
         }
       } else {
         setProjectError(
           error instanceof Error
             ? error.message
-            : "Не удалось создать проект. Проверьте, что backend доступен на localhost:8000.",
+            : "Не удалось создать проект. Проверьте, что сервер доступен на localhost:8000.",
         );
       }
     } finally {
@@ -256,11 +256,10 @@ export function DataUpload() {
 
   return (
     <div className="p-8 space-y-6">
-      {/* Page Header */}
       <div>
         <h2 className="text-2xl font-semibold text-gray-900">Загрузка Excel-файла</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Импорт входного файла SCRUMS для расчёта трудозатрат, EI и рекомендаций.
+          Импорт Excel-файла для расчёта трудозатрат, EI и рекомендаций.
         </p>
       </div>
 
@@ -273,7 +272,7 @@ export function DataUpload() {
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Данные для анализа</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Выберите рабочий набор данных, в который нужно импортировать Excel-файл.
+                Выберите проект, в который нужно загрузить Excel-файл.
               </p>
             </div>
           </div>
@@ -304,11 +303,11 @@ export function DataUpload() {
                 <p className="text-sm font-medium text-blue-900">{selectedTargetProject.name}</p>
                 {selectedTargetProject.backendId ? (
                   <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800">
-                    backend #{selectedTargetProject.backendId}
+                    сервер #{selectedTargetProject.backendId}
                   </span>
                 ) : (
                   <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
-                    не связан с backend
+                    не связан с сервером
                   </span>
                 )}
               </div>
@@ -362,7 +361,7 @@ export function DataUpload() {
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Создать новый проект</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Новый проект создаётся в backend и сразу появляется в верхнем списке проектов.
+                Новый проект создаётся на сервере и появляется в списке проектов.
             </p>
           </div>
         </div>
@@ -417,9 +416,9 @@ export function DataUpload() {
             <FileSpreadsheet className="text-violet-600" size={20} />
           </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Поля, необходимые для математической модели</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Поля для расчёта</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Чтобы SCRUMS рассчитывал Q_i, Topt_i, EI_i, δ_i и вероятность выполнения в пределах плана, файл должен содержать следующие поля.
+                Чтобы расчёт работал, Excel-файл должен содержать эти поля.
               </p>
             </div>
           </div>
@@ -443,7 +442,6 @@ export function DataUpload() {
         </div>
       </div>
 
-      {/* Upload Area */}
       <div className="bg-white rounded-xl p-8 border border-gray-200">
         <div
           className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors ${
@@ -481,11 +479,10 @@ export function DataUpload() {
           </div>
         </div>
 
-        {/* Upload Status */}
         {uploadStatus === "uploading" && (
           <div className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
             <p className="text-sm font-medium text-blue-900">
-              Файл загружается в backend и проходит валидацию входного контракта SCRUMS.
+              Файл загружается на сервер и проверяется по шаблону SCRUMS.
             </p>
             <p className="mt-1 text-sm text-blue-700">
               Не закрывайте страницу, пока импорт не завершится.
@@ -520,7 +517,6 @@ export function DataUpload() {
         )}
       </div>
 
-      {/* Data Preview */}
       {(hasData || isAnalyticsLoading) && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -528,7 +524,7 @@ export function DataUpload() {
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Актуальные данные проекта</h3>
                 <p className="text-sm text-gray-500 mt-1">
-                  Первые рассчитанные строки для выбранного проекта.
+                  Первые рассчитанные строки выбранного проекта.
                 </p>
               </div>
               {hasData && (
@@ -540,11 +536,11 @@ export function DataUpload() {
           </div>
           {isAnalyticsLoading ? (
             <div className="px-6 py-8 text-sm text-gray-500">
-              Загружаем актуальные данные проекта из backend...
+              Загружаем данные проекта с сервера...
             </div>
           ) : previewRows.length === 0 ? (
             <div className="px-6 py-8 text-sm text-gray-500">
-              У проекта есть аналитика, но backend не вернул строки предпросмотра.
+              У проекта есть аналитика, но сервер не вернул строки для просмотра.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -619,7 +615,6 @@ export function DataUpload() {
         </div>
       )}
 
-      {/* Upload History */}
       <div className="bg-white rounded-xl border border-gray-200">
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">История загрузок</h3>
@@ -630,7 +625,7 @@ export function DataUpload() {
         <div className="divide-y divide-gray-200">
           {isHistoryLoading && (
             <div className="px-6 py-4 text-sm text-gray-500">
-              Загружаем историю импортов из backend...
+              Загружаем историю импортов с сервера...
             </div>
           )}
           {projectUploads.length === 0 && (

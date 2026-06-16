@@ -303,6 +303,15 @@ def build_project_analytics(db: Session, project: Project) -> dict:
 
     average_velocity = round_to(mean([item["completed"] for item in sprint_series]), 1)
     average_task_probability = round_to(mean([task.on_time_probability for task in current_sprint_tasks]) * 100, 1)
+    planned_hours_total = round_to(sum(task.planned_hours for task in modeled_tasks), 1)
+    actual_hours_total = round_to(sum(task.actual_hours for task in modeled_tasks), 1)
+    optimal_hours_total = round_to(sum(task.optimal_hours for task in modeled_tasks), 1)
+    deviation_hours_total = round_to(actual_hours_total - planned_hours_total, 1)
+    deviation_percent_total = round_to(
+        (deviation_hours_total / planned_hours_total) * 100 if planned_hours_total else 0,
+        1,
+    )
+    request_type_counts = Counter(task.area for task in modeled_tasks)
 
     return {
         "hasData": True,
@@ -318,6 +327,24 @@ def build_project_analytics(db: Session, project: Project) -> dict:
             "currentBacklogCompletion": backlog_completion_index,
             "riskScore": risk_score,
             "riskLabel": risk_label,
+            "inputFile": "SCRUMS input Jan-Jun 2026.xlsx",
+            "sprintCount": len(sprints),
+            "requestCount": len(modeled_tasks),
+            "assignmentRows": sum(task.participant_count for task in modeled_tasks),
+            "teamMemberCount": len(member_stats),
+            "consultations": request_type_counts.get("Консультация", 0),
+            "errors": request_type_counts.get("Ошибка", 0),
+            "improvements": request_type_counts.get("Доработка", 0),
+            "plannedHours": planned_hours_total,
+            "actualHours": actual_hours_total,
+            "deviationHours": deviation_hours_total,
+            "deviationPercent": deviation_percent_total,
+            "optimalHours": optimal_hours_total,
+            "optimalDeviationPercent": round_to(
+                ((actual_hours_total - optimal_hours_total) / optimal_hours_total) * 100 if optimal_hours_total else 0,
+                1,
+            ),
+            "onTimeProbability": round_to(mean([task.on_time_probability for task in modeled_tasks]) * 100, 1),
             "sprintSeries": sprint_series,
             "complexityDistribution": complexity_distribution,
             "modelSummary": [
@@ -388,6 +415,7 @@ def build_project_analytics(db: Session, project: Project) -> dict:
             "planned_hours",
             "actual_hours",
             "participant_name",
+            "participant_role",
             "qualification",
             "participant_hours",
         ],
@@ -430,8 +458,18 @@ def prepare_project_analytics_context(db: Session, project: Project) -> dict:
     formulas = {**DEFAULT_FORMULAS, **active_model.formulas}
     sprint_by_id = {sprint.id: sprint for sprint in sprints}
     log_normal_params = derive_log_normal_params(tasks) if tasks else {key: {"mu": 0, "sigma": 0.05} for key in DEFAULT_WORK_NORMS}
+    project_member_by_name = {member.name: member for member in project_members}
     modeled_tasks = [
-        build_modeled_task(task, sprint_by_id, alpha_scale, beta, work_norms, formulas, log_normal_params)
+        build_modeled_task(
+            task,
+            sprint_by_id,
+            project_member_by_name,
+            alpha_scale,
+            beta,
+            work_norms,
+            formulas,
+            log_normal_params,
+        )
         for task in tasks
     ]
     for task in modeled_tasks:
@@ -502,6 +540,7 @@ def _empty_analytics(project: Project, active_model) -> dict:
             "planned_hours",
             "actual_hours",
             "participant_name",
+            "participant_role",
             "qualification",
             "participant_hours",
         ],
@@ -551,6 +590,7 @@ def derive_log_normal_params(tasks: list[Task]) -> dict[str, dict[str, float]]:
 def build_modeled_task(
     task: Task,
     sprint_by_id: dict[int, Sprint],
+    project_member_by_name: dict[str, ProjectMember],
     alpha_scale: dict[str, float],
     beta: float,
     work_norms: dict[str, float],
@@ -565,12 +605,13 @@ def build_modeled_task(
         hours = float(assignment.participant_hours)
         qualification = assignment.qualification.value
         alpha = float(alpha_scale[qualification])
+        project_member = project_member_by_name.get(assignment.participant_name)
         total_participant_hours += hours
         weighted_alpha_hours += hours * alpha
         participants.append(
             ModeledParticipant(
                 name=assignment.participant_name,
-                role=role_label_from_qualification(qualification),
+                role=project_member.role if project_member is not None else role_label_from_qualification(qualification),
                 qualification=qualification,
                 hours=hours,
                 alpha=alpha,
@@ -742,7 +783,7 @@ def build_problematic_tasks(current_sprint_tasks: list[ModeledTask]) -> list[dic
         if task.efficiency_index < 0.85:
             return "Фактическое время заметно хуже теоретически оптимального времени модели."
         if task.communication_factor < 0.8:
-            return "Состав задачи создаёт выраженные коммуникационные потери по закону Брукса."
+            return "Состав исполнителей заявки создаёт выраженные коммуникационные потери по закону Брукса."
         return "Задача требует дополнительного внимания по совокупности модельных факторов."
 
     def task_severity(task: ModeledTask) -> str:
@@ -942,19 +983,19 @@ def build_recommendations(
             "id": "scope-balance",
             "priority": "high" if backlog_completion_index < 85 else "medium",
             "kind": "scope",
-            "title": "Сбалансировать объём следующего спринта относительно расчетной velocity",
+            "title": "Оставлять запас времени в следующих спринтах",
             "description": (
-                "План текущего спринта оказался выше фактической пропускной способности команды."
+                "План текущего спринта оказался ниже фактических трудозатрат."
                 if backlog_completion_index < 85
-                else "Планирование близко к рабочему диапазону, но требует небольшого буфера на риск."
+                else "План близок к нормальному диапазону, но запас лучше оставить."
             ),
             "reason": (
-                f"BCI текущего спринта = {backlog_completion_index}%, "
-                f"а средняя velocity по истории = {round_to(mean([item['completed'] for item in sprint_series]), 1)} SP."
+                f"Выполнение планового объёма текущего спринта = {backlog_completion_index}%, "
+                f"а средний фактический объём по истории = {round_to(mean([item['completed'] for item in sprint_series]), 1)} SP."
             ),
             "metrics": [
-                f"BCI: {backlog_completion_index}%",
-                f"Средняя velocity: {round_to(mean([item['completed'] for item in sprint_series]), 1)} SP",
+                f"Выполнение плана: {backlog_completion_index}%",
+                f"Средний фактический объём: {round_to(mean([item['completed'] for item in sprint_series]), 1)} SP",
                 f"Текущий план: {float(current_sprint.planned_story_points or 0)} SP",
             ],
         },
@@ -962,17 +1003,17 @@ def build_recommendations(
             "id": "workload-redistribution",
             "priority": "high" if overloaded_members else "low",
             "kind": "team",
-            "title": "Перераспределить часы между перегруженными и недогруженными участниками",
+            "title": "Проверять состав исполнителей",
             "description": (
-                "В текущем спринте есть участники, работающие сверх своей доступной ёмкости."
+                "В текущем спринте есть участники с перегрузкой."
                 if overloaded_members
-                else "Нагрузка распределена достаточно ровно, но мониторинг стоит сохранить."
+                else "Нагрузка распределена достаточно ровно."
             ),
             "reason": (
                 f"Перегружены: {', '.join(member['name'] for member in overloaded_members)}. "
                 f"Недогружены: {', '.join(member['name'] for member in underutilized_members) or 'нет'}."
                 if overloaded_members
-                else "Критических перегрузок по текущему набору задач модель не обнаружила."
+                else "Критических перегрузок по текущим заявкам не найдено."
             ),
             "metrics": [
                 f"Перегружено участников: {len(overloaded_members)}",
@@ -984,20 +1025,20 @@ def build_recommendations(
             "id": "junior-pairing",
             "priority": "high" if junior_risk_tasks else "medium",
             "kind": "risk",
-            "title": "Сложные задачи с junior-участием переводить в парное исполнение",
+            "title": "Разобрать заявки с низким EI",
             "description": (
-                "Модель показывает, что junior-участники на L/XL-задачах повышают риск выхода за план."
+                "В сложных заявках участие младших специалистов может повышать риск перерасхода."
                 if junior_risk_tasks
-                else "Junior-участие в сложных задачах сейчас не доминирует, но правило pairing полезно сохранить."
+                else "Сложные заявки в основном закрываются более опытными участниками."
             ),
             "reason": (
-                f"В текущем спринте {len(junior_risk_tasks)} задач класса L/XL содержат junior-вклад. "
+                f"В текущем спринте {len(junior_risk_tasks)} заявок класса L/XL содержат вклад младших специалистов. "
                 f"Средняя вероятность уложиться в срок по ним = {round_to(mean([task.on_time_probability for task in junior_risk_tasks]) * 100, 1)}%."
                 if junior_risk_tasks
-                else "Сложные задачи преимущественно закрываются middle/senior составом."
+                else "Сложные заявки в основном закрываются основными и ведущими специалистами."
             ),
             "metrics": [
-                f"Задач L/XL с junior: {len(junior_risk_tasks)}",
+                f"Заявок L/XL с младшим специалистом: {len(junior_risk_tasks)}",
                 f"Средний EI по ним: {round_to(mean([task.efficiency_index for task in junior_risk_tasks]), 2)}",
                 f"Средний P(Tfact ≤ Tplan): {round_to(mean([task.on_time_probability for task in junior_risk_tasks]) * 100, 1)}%",
             ],
@@ -1006,8 +1047,8 @@ def build_recommendations(
             "id": "complexity-calibration",
             "priority": "medium" if most_problematic_complexity["averageDeviation"] > 20 else "low",
             "kind": "calibration",
-            "title": f"Перекалибровать норматив w_{most_problematic_complexity['code']} для класса {most_problematic_complexity['code']}",
-            "description": "Наиболее нестабильный класс задач даёт самый большой разрыв между планом и фактом.",
+            "title": f"Проверить плановые оценки заявок класса {most_problematic_complexity['code']}",
+            "description": "У этого класса самый большой разрыв между планом и фактом.",
             "reason": (
                 f"Для класса {most_problematic_complexity['code']} среднее отклонение = "
                 f"{round_to(most_problematic_complexity['averageDeviation'], 1)}%, "
@@ -1023,20 +1064,20 @@ def build_recommendations(
             "id": "communication-losses",
             "priority": "medium" if communication_risk_tasks else "low",
             "kind": "quality",
-            "title": "Снижать количество участников на задачах с высоким коммуникационным штрафом",
+            "title": "Следить за заявками с риском перерасхода",
             "description": (
-                "Часть задач теряет эффективность из-за большого количества участников."
+                "Часть заявок теряет эффективность из-за большого количества участников."
                 if communication_risk_tasks
                 else "Сильных коммуникационных штрафов в текущем спринте почти нет."
             ),
             "reason": (
-                f"Найдено {len(communication_risk_tasks)} задач с 4+ участниками и f(M) < 0,8."
+                f"Найдено {len(communication_risk_tasks)} заявок с 4+ участниками и f(M) < 0,8."
                 if communication_risk_tasks
                 else f"Оцененный коэффициент Брукса β = {beta}."
             ),
             "metrics": [
                 f"β: {beta}",
-                f"Задач с f(M) < 0,8: {len(communication_risk_tasks)}",
+                f"Заявок с f(M) < 0,8: {len(communication_risk_tasks)}",
                 f"Средний f(M): {round_to(mean([task.communication_factor for task in current_sprint_tasks]), 2)}",
             ],
         },
@@ -1094,11 +1135,9 @@ def duration_days(start: date | None, end: date | None) -> int:
 
 def role_label_from_qualification(qualification: str) -> str:
     return {
-        "junior": "Junior developer",
-        "middle": "Developer",
-        "senior": "Senior developer",
-        "analyst": "System analyst",
-        "pm": "Project manager",
+        "junior": "разработчик",
+        "middle": "разработчик",
+        "senior": "разработчик",
     }[qualification]
 
 
@@ -1107,8 +1146,6 @@ def default_capacity_by_qualification(qualification: str) -> float:
         "junior": 36.0,
         "middle": 40.0,
         "senior": 40.0,
-        "analyst": 38.0,
-        "pm": 30.0,
     }[qualification]
 
 

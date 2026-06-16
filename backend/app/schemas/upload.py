@@ -29,6 +29,7 @@ class ImportTemplateRow(BaseModel):
     planned_hours: float
     actual_hours: float
     participant_name: str
+    participant_role: str
     qualification: QualificationLevel
     participant_hours: float
     status: TaskStatus

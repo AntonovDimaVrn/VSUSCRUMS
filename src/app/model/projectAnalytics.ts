@@ -1,5 +1,5 @@
 export type ComplexityClass = "S" | "M" | "L" | "XL";
-export type Qualification = "junior" | "middle" | "senior" | "analyst" | "pm";
+export type Qualification = "junior" | "middle" | "senior";
 export type TaskStatus = "completed" | "in_progress" | "blocked";
 
 type TeamMember = {
@@ -42,6 +42,8 @@ export type ModeledTask = {
   title: string;
   sprintId: string;
   sprintName: string;
+  sprintStart?: string;
+  sprintEnd?: string;
   storyPoints: number;
   complexity: ComplexityClass;
   plannedHours: number;
@@ -93,6 +95,22 @@ export type ProjectAnalytics = {
     currentBacklogCompletion: number;
     riskScore: number;
     riskLabel: string;
+    inputFile?: string;
+    period?: string;
+    sprintCount?: number;
+    requestCount?: number;
+    assignmentRows?: number;
+    teamMemberCount?: number;
+    consultations?: number;
+    errors?: number;
+    improvements?: number;
+    plannedHours?: number;
+    actualHours?: number;
+    deviationHours?: number;
+    deviationPercent?: number;
+    optimalHours?: number;
+    optimalDeviationPercent?: number;
+    onTimeProbability?: number;
     sprintSeries: Array<{
       sprint: string;
       planned: number;
@@ -165,6 +183,8 @@ export type ProjectAnalytics = {
     }>;
   };
   recommendations: Recommendation[];
+  taskDetails?: ModeledTask[];
+  formulas?: Record<string, string>;
   previewRows: Array<{
     id: string;
     sprint: string;
@@ -181,635 +201,152 @@ const alphaScale: Record<Qualification, number> = {
   junior: 0.6,
   middle: 1.0,
   senior: 1.4,
-  analyst: 0.9,
-  pm: 0.55,
+};
+
+const qualificationLabel: Record<Qualification, string> = {
+  junior: "младший специалист",
+  middle: "основной специалист",
+  senior: "ведущий специалист",
 };
 
 const complexityMeta: Record<ComplexityClass, { name: string; color: string }> = {
-  S: { name: "S / простые", color: "#10b981" },
-  M: { name: "M / средние", color: "#3b82f6" },
-  L: { name: "L / сложные", color: "#f59e0b" },
-  XL: { name: "XL / критические", color: "#ef4444" },
+  S: { name: "S / консультации", color: "#10b981" },
+  M: { name: "M / ошибки", color: "#3b82f6" },
+  L: { name: "L / доработки", color: "#f59e0b" },
+  XL: { name: "XL / критические доработки", color: "#ef4444" },
 };
 
 const members: TeamMember[] = [
-  { id: "anna", name: "Анна Смирнова", role: "Тимлид", qualification: "senior", capacityHours: 40 },
-  { id: "ivan", name: "Иван Иванов", role: "Backend разработчик", qualification: "senior", capacityHours: 40 },
-  { id: "alex", name: "Алексей Коваленко", role: "Frontend разработчик", qualification: "middle", capacityHours: 40 },
-  { id: "mikhail", name: "Михаил Петров", role: "Разработчик", qualification: "junior", capacityHours: 36 },
-  { id: "elena", name: "Елена Сидорова", role: "Системный аналитик", qualification: "analyst", capacityHours: 38 },
-  { id: "olga", name: "Ольга Морозова", role: "Продуктовый дизайнер", qualification: "analyst", capacityHours: 35 },
-  { id: "pavel", name: "Павел Орлов", role: "Project Manager", qualification: "pm", capacityHours: 30 },
+  { id: "smirnova", name: "Анна Смирнова", role: "руководитель проекта", qualification: "senior", capacityHours: 40 },
+  { id: "ivanov", name: "Иван Иванов", role: "разработчик", qualification: "senior", capacityHours: 40 },
+  { id: "kovalenko", name: "Алексей Коваленко", role: "разработчик", qualification: "middle", capacityHours: 40 },
+  { id: "petrov", name: "Михаил Петров", role: "разработчик", qualification: "junior", capacityHours: 36 },
+  { id: "sidorova", name: "Елена Сидорова", role: "аналитик", qualification: "middle", capacityHours: 38 },
+  { id: "orlov", name: "Павел Орлов", role: "руководитель проекта", qualification: "middle", capacityHours: 30 },
 ];
 
-const sprints: Sprint[] = [
-  { id: "s1", name: "Спринт 1", start: "2026-02-09", end: "2026-02-22", plannedStoryPoints: 34 },
-  { id: "s2", name: "Спринт 2", start: "2026-02-23", end: "2026-03-08", plannedStoryPoints: 40 },
-  { id: "s3", name: "Спринт 3", start: "2026-03-09", end: "2026-03-22", plannedStoryPoints: 42 },
-  { id: "s4", name: "Спринт 4", start: "2026-03-23", end: "2026-04-05", plannedStoryPoints: 46 },
-  { id: "s5", name: "Спринт 5", start: "2026-04-06", end: "2026-04-19", plannedStoryPoints: 48 },
-  { id: "s6", name: "Спринт 6", start: "2026-04-20", end: "2026-05-03", plannedStoryPoints: 52 },
+const sprintStarts = [
+  "2026-01-12",
+  "2026-01-19",
+  "2026-01-26",
+  "2026-02-02",
+  "2026-02-09",
+  "2026-02-16",
+  "2026-02-23",
+  "2026-03-02",
+  "2026-03-09",
+  "2026-03-16",
+  "2026-03-23",
+  "2026-03-30",
+  "2026-04-06",
+  "2026-04-13",
+  "2026-04-20",
+  "2026-04-27",
+  "2026-05-04",
+  "2026-05-11",
+  "2026-05-18",
+  "2026-05-25",
 ];
 
-const tasks: Task[] = [
-  {
-    id: "TASK-101",
-    title: "Авторизация профиля",
-    sprintId: "s1",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 20,
-    actualHours: 18,
-    status: "completed",
-    area: "API",
-    assignments: [
-      { memberId: "ivan", hours: 10 },
-      { memberId: "anna", hours: 6 },
-      { memberId: "pavel", hours: 2 },
-    ],
-  },
-  {
-    id: "TASK-102",
-    title: "Онбординг аналитики",
-    sprintId: "s1",
-    storyPoints: 3,
-    complexity: "S",
-    plannedHours: 12,
-    actualHours: 16,
-    status: "completed",
-    area: "Analytics",
-    assignments: [
-      { memberId: "mikhail", hours: 9 },
-      { memberId: "elena", hours: 7 },
-    ],
-  },
-  {
-    id: "TASK-103",
-    title: "Интеграция push-уведомлений",
-    sprintId: "s1",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 32,
-    actualHours: 38,
-    status: "completed",
-    area: "Infrastructure",
-    assignments: [
-      { memberId: "anna", hours: 8 },
-      { memberId: "alex", hours: 12 },
-      { memberId: "ivan", hours: 14 },
-      { memberId: "pavel", hours: 4 },
-    ],
-  },
-  {
-    id: "TASK-104",
-    title: "UI-фильтры dashboard",
-    sprintId: "s1",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 18,
-    actualHours: 17,
-    status: "completed",
-    area: "UI",
-    assignments: [
-      { memberId: "alex", hours: 10 },
-      { memberId: "olga", hours: 5 },
-      { memberId: "elena", hours: 2 },
-    ],
-  },
-  {
-    id: "TASK-105",
-    title: "Сбор crash telemetry",
-    sprintId: "s1",
-    storyPoints: 13,
-    complexity: "XL",
-    plannedHours: 52,
-    actualHours: 56,
-    status: "completed",
-    area: "Platform",
-    assignments: [
-      { memberId: "anna", hours: 10 },
-      { memberId: "ivan", hours: 20 },
-      { memberId: "alex", hours: 12 },
-      { memberId: "elena", hours: 8 },
-      { memberId: "pavel", hours: 6 },
-    ],
-  },
-  {
-    id: "TASK-201",
-    title: "Автоматизация release notes",
-    sprintId: "s2",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 18,
-    actualHours: 16,
-    status: "completed",
-    area: "Process",
-    assignments: [
-      { memberId: "elena", hours: 6 },
-      { memberId: "olga", hours: 8 },
-      { memberId: "anna", hours: 2 },
-    ],
-  },
-  {
-    id: "TASK-202",
-    title: "Offline sync",
-    sprintId: "s2",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 30,
-    actualHours: 34,
-    status: "completed",
-    area: "Mobile",
-    assignments: [
-      { memberId: "ivan", hours: 12 },
-      { memberId: "alex", hours: 10 },
-      { memberId: "anna", hours: 8 },
-      { memberId: "pavel", hours: 4 },
-    ],
-  },
-  {
-    id: "TASK-203",
-    title: "Тюнинг search index",
-    sprintId: "s2",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 20,
-    actualHours: 24,
-    status: "completed",
-    area: "Search",
-    assignments: [
-      { memberId: "mikhail", hours: 10 },
-      { memberId: "ivan", hours: 8 },
-      { memberId: "elena", hours: 6 },
-    ],
-  },
-  {
-    id: "TASK-204",
-    title: "Dashboard widgets",
-    sprintId: "s2",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 28,
-    actualHours: 26,
-    status: "completed",
-    area: "UI",
-    assignments: [
-      { memberId: "alex", hours: 14 },
-      { memberId: "olga", hours: 6 },
-      { memberId: "anna", hours: 6 },
-    ],
-  },
-  {
-    id: "TASK-205",
-    title: "Экспорт аналитики",
-    sprintId: "s2",
-    storyPoints: 13,
-    complexity: "XL",
-    plannedHours: 48,
-    actualHours: 64,
-    status: "completed",
-    area: "Analytics",
-    assignments: [
-      { memberId: "anna", hours: 12 },
-      { memberId: "ivan", hours: 18 },
-      { memberId: "alex", hours: 12 },
-      { memberId: "elena", hours: 10 },
-      { memberId: "pavel", hours: 12 },
-    ],
-    externalDependency: true,
-  },
-  {
-    id: "TASK-301",
-    title: "QA evidence board",
-    sprintId: "s3",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 16,
-    actualHours: 15,
-    status: "completed",
-    area: "QA",
-    assignments: [
-      { memberId: "elena", hours: 8 },
-      { memberId: "alex", hours: 5 },
-      { memberId: "olga", hours: 2 },
-    ],
-  },
-  {
-    id: "TASK-302",
-    title: "Платежная сверка",
-    sprintId: "s3",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 32,
-    actualHours: 36,
-    status: "completed",
-    area: "Payments",
-    assignments: [
-      { memberId: "ivan", hours: 14 },
-      { memberId: "anna", hours: 8 },
-      { memberId: "elena", hours: 8 },
-      { memberId: "pavel", hours: 6 },
-    ],
-  },
-  {
-    id: "TASK-303",
-    title: "Heatmap загрузки команды",
-    sprintId: "s3",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 18,
-    actualHours: 19,
-    status: "completed",
-    area: "Analytics",
-    assignments: [
-      { memberId: "mikhail", hours: 8 },
-      { memberId: "alex", hours: 8 },
-      { memberId: "elena", hours: 3 },
-    ],
-  },
-  {
-    id: "TASK-304",
-    title: "Feature flags rollout",
-    sprintId: "s3",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 28,
-    actualHours: 27,
-    status: "completed",
-    area: "Platform",
-    assignments: [
-      { memberId: "ivan", hours: 10 },
-      { memberId: "alex", hours: 10 },
-      { memberId: "anna", hours: 7 },
-    ],
-  },
-  {
-    id: "TASK-305",
-    title: "Release governance",
-    sprintId: "s3",
-    storyPoints: 13,
-    complexity: "XL",
-    plannedHours: 50,
-    actualHours: 47,
-    status: "completed",
-    area: "Process",
-    assignments: [
-      { memberId: "anna", hours: 12 },
-      { memberId: "ivan", hours: 14 },
-      { memberId: "elena", hours: 10 },
-      { memberId: "pavel", hours: 11 },
-    ],
-  },
-  {
-    id: "TASK-306",
-    title: "UI glossary cleanup",
-    sprintId: "s3",
-    storyPoints: 3,
-    complexity: "S",
-    plannedHours: 10,
-    actualHours: 9,
-    status: "completed",
-    area: "UI",
-    assignments: [
-      { memberId: "olga", hours: 6 },
-      { memberId: "mikhail", hours: 3 },
-    ],
-  },
-  {
-    id: "TASK-401",
-    title: "Sprint risk scoring",
-    sprintId: "s4",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 30,
-    actualHours: 28,
-    status: "completed",
-    area: "Analytics",
-    assignments: [
-      { memberId: "anna", hours: 8 },
-      { memberId: "alex", hours: 12 },
-      { memberId: "elena", hours: 6 },
-      { memberId: "pavel", hours: 2 },
-    ],
-  },
-  {
-    id: "TASK-402",
-    title: "Data retention policy",
-    sprintId: "s4",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 18,
-    actualHours: 20,
-    status: "completed",
-    area: "Data",
-    assignments: [
-      { memberId: "ivan", hours: 9 },
-      { memberId: "elena", hours: 7 },
-      { memberId: "pavel", hours: 4 },
-    ],
-  },
-  {
-    id: "TASK-403",
-    title: "Редизайн сложных фильтров",
-    sprintId: "s4",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 32,
-    actualHours: 37,
-    status: "completed",
-    area: "UI",
-    assignments: [
-      { memberId: "alex", hours: 14 },
-      { memberId: "olga", hours: 10 },
-      { memberId: "anna", hours: 8 },
-      { memberId: "elena", hours: 5 },
-    ],
-  },
-  {
-    id: "TASK-404",
-    title: "Notification center",
-    sprintId: "s4",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 18,
-    actualHours: 17,
-    status: "completed",
-    area: "Mobile",
-    assignments: [
-      { memberId: "mikhail", hours: 8 },
-      { memberId: "alex", hours: 7 },
-      { memberId: "olga", hours: 2 },
-    ],
-  },
-  {
-    id: "TASK-405",
-    title: "Cross-team metrics sync",
-    sprintId: "s4",
-    storyPoints: 13,
-    complexity: "XL",
-    plannedHours: 52,
-    actualHours: 60,
-    status: "completed",
-    area: "Integration",
-    assignments: [
-      { memberId: "anna", hours: 10 },
-      { memberId: "ivan", hours: 16 },
-      { memberId: "elena", hours: 12 },
-      { memberId: "pavel", hours: 10 },
-      { memberId: "alex", hours: 12 },
-    ],
-    externalDependency: true,
-  },
-  {
-    id: "TASK-406",
-    title: "Smoke-suite cleanup",
-    sprintId: "s4",
-    storyPoints: 7,
-    complexity: "L",
-    plannedHours: 26,
-    actualHours: 24,
-    status: "completed",
-    area: "QA",
-    assignments: [
-      { memberId: "mikhail", hours: 10 },
-      { memberId: "elena", hours: 10 },
-      { memberId: "anna", hours: 4 },
-    ],
-  },
-  {
-    id: "TASK-501",
-    title: "Refactor mobile alerts",
-    sprintId: "s5",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 30,
-    actualHours: 33,
-    status: "completed",
-    area: "Mobile",
-    assignments: [
-      { memberId: "ivan", hours: 12 },
-      { memberId: "alex", hours: 10 },
-      { memberId: "anna", hours: 8 },
-      { memberId: "pavel", hours: 3 },
-    ],
-  },
-  {
-    id: "TASK-502",
-    title: "Шаблоны sprint report",
-    sprintId: "s5",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 17,
-    actualHours: 15,
-    status: "completed",
-    area: "Process",
-    assignments: [
-      { memberId: "elena", hours: 7 },
-      { memberId: "olga", hours: 6 },
-      { memberId: "pavel", hours: 2 },
-    ],
-  },
-  {
-    id: "TASK-503",
-    title: "Карта зависимостей бэклога",
-    sprintId: "s5",
-    storyPoints: 3,
-    complexity: "S",
-    plannedHours: 10,
-    actualHours: 11,
-    status: "completed",
-    area: "Analytics",
-    assignments: [
-      { memberId: "elena", hours: 5 },
-      { memberId: "pavel", hours: 3 },
-      { memberId: "olga", hours: 3 },
-    ],
-  },
-  {
-    id: "TASK-504",
-    title: "Accessibility audit fixes",
-    sprintId: "s5",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 18,
-    actualHours: 17,
-    status: "completed",
-    area: "UI",
-    assignments: [
-      { memberId: "alex", hours: 9 },
-      { memberId: "olga", hours: 5 },
-      { memberId: "mikhail", hours: 3 },
-    ],
-  },
-  {
-    id: "TASK-505",
-    title: "Role matrix permissions",
-    sprintId: "s5",
-    storyPoints: 13,
-    complexity: "XL",
-    plannedHours: 50,
-    actualHours: 57,
-    status: "completed",
-    area: "Security",
-    assignments: [
-      { memberId: "anna", hours: 12 },
-      { memberId: "ivan", hours: 16 },
-      { memberId: "alex", hours: 12 },
-      { memberId: "elena", hours: 7 },
-      { memberId: "pavel", hours: 10 },
-    ],
-  },
-  {
-    id: "TASK-506",
-    title: "Release rollback flow",
-    sprintId: "s5",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 30,
-    actualHours: 29,
-    status: "completed",
-    area: "Platform",
-    assignments: [
-      { memberId: "ivan", hours: 12 },
-      { memberId: "anna", hours: 8 },
-      { memberId: "alex", hours: 9 },
-    ],
-  },
-  {
-    id: "TASK-507",
-    title: "Resiliency metrics pipeline",
-    sprintId: "s5",
-    storyPoints: 6,
-    complexity: "M",
-    plannedHours: 22,
-    actualHours: 21,
-    status: "completed",
-    area: "Data",
-    assignments: [
-      { memberId: "ivan", hours: 8 },
-      { memberId: "mikhail", hours: 8 },
-      { memberId: "elena", hours: 5 },
-    ],
-  },
-  {
-    id: "TASK-601",
-    title: "Smart backlog planner",
-    sprintId: "s6",
-    storyPoints: 13,
-    complexity: "XL",
-    plannedHours: 54,
-    actualHours: 49,
-    status: "completed",
-    area: "Analytics",
-    assignments: [
-      { memberId: "anna", hours: 12 },
-      { memberId: "ivan", hours: 14 },
-      { memberId: "elena", hours: 10 },
-      { memberId: "pavel", hours: 6 },
-      { memberId: "alex", hours: 7 },
-    ],
-  },
-  {
-    id: "TASK-602",
-    title: "Dashboard anomaly alerts",
-    sprintId: "s6",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 30,
-    actualHours: 27,
-    status: "completed",
-    area: "Analytics",
-    assignments: [
-      { memberId: "alex", hours: 12 },
-      { memberId: "ivan", hours: 8 },
-      { memberId: "elena", hours: 5 },
-      { memberId: "pavel", hours: 2 },
-    ],
-  },
-  {
-    id: "TASK-603",
-    title: "QA auto-checklists",
-    sprintId: "s6",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 16,
-    actualHours: 14,
-    status: "completed",
-    area: "QA",
-    assignments: [
-      { memberId: "elena", hours: 8 },
-      { memberId: "mikhail", hours: 4 },
-      { memberId: "olga", hours: 2 },
-    ],
-  },
-  {
-    id: "TASK-604",
-    title: "Team capacity rebalance",
-    sprintId: "s6",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 18,
-    actualHours: 26,
-    status: "completed",
-    area: "Process",
-    assignments: [
-      { memberId: "anna", hours: 8 },
-      { memberId: "elena", hours: 7 },
-      { memberId: "pavel", hours: 4 },
-      { memberId: "alex", hours: 7 },
-    ],
-  },
-  {
-    id: "TASK-605",
-    title: "Billing edge-cases",
-    sprintId: "s6",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 32,
-    actualHours: 39,
-    status: "blocked",
-    area: "Payments",
-    assignments: [
-      { memberId: "ivan", hours: 12 },
-      { memberId: "anna", hours: 10 },
-      { memberId: "mikhail", hours: 11 },
-      { memberId: "pavel", hours: 6 },
-    ],
-    externalDependency: true,
-  },
-  {
-    id: "TASK-606",
-    title: "Design token migration",
-    sprintId: "s6",
-    storyPoints: 8,
-    complexity: "L",
-    plannedHours: 26,
-    actualHours: 24,
-    status: "completed",
-    area: "UI",
-    assignments: [
-      { memberId: "alex", hours: 12 },
-      { memberId: "olga", hours: 8 },
-      { memberId: "anna", hours: 4 },
-    ],
-  },
-  {
-    id: "TASK-607",
-    title: "Data freshness monitor",
-    sprintId: "s6",
-    storyPoints: 5,
-    complexity: "M",
-    plannedHours: 18,
-    actualHours: 16,
-    status: "completed",
-    area: "Data",
-    assignments: [
-      { memberId: "ivan", hours: 6 },
-      { memberId: "elena", hours: 8 },
-      { memberId: "mikhail", hours: 2 },
-    ],
-  },
+function addDays(isoDate: string, days: number) {
+  const date = new Date(`${isoDate}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+const sprints: Sprint[] = sprintStarts.map((start, index) => ({
+  id: `s${index + 1}`,
+  name: `Спринт ${index + 1}`,
+  start,
+  end: index === 19 ? "2026-05-29" : addDays(start, 4),
+  plannedStoryPoints: 10,
+}));
+
+const requestTypeSequence: Array<{ area: string; complexity: ComplexityClass; storyPoints: number; title: string }> = [
+  ...Array.from({ length: 40 }, (_, index) => ({
+    area: "Консультация",
+    complexity: "S" as const,
+    storyPoints: index % 3 === 0 ? 2 : 1,
+    title: "Консультация пользователя по работе сервиса",
+  })),
+  ...Array.from({ length: 100 }, (_, index) => ({
+    area: "Ошибка",
+    complexity: (index % 5 === 0 ? "L" : "M") as ComplexityClass,
+    storyPoints: index % 4 === 0 ? 5 : 3,
+    title: "Исправление ошибки в заявке пользователя",
+  })),
+  ...Array.from({ length: 60 }, (_, index) => ({
+    area: "Доработка",
+    complexity: (index % 4 === 0 ? "XL" : "L") as ComplexityClass,
+    storyPoints: index % 4 === 0 ? 8 : 5,
+    title: "Доработка функциональности по заявке",
+  })),
 ];
+
+function plannedHoursFor(index: number, request: { area: string; complexity: ComplexityClass }) {
+  const base = request.area === "Консультация" ? 18 : request.area === "Ошибка" ? 39.5 : 48.5;
+  const oscillation = [0, 1.7, -1.2, 2.4, -0.8][index % 5];
+  const complexityBoost = request.complexity === "XL" ? 7.5 : request.complexity === "L" ? 3.2 : 0;
+  return Number((base + oscillation + complexityBoost).toFixed(1));
+}
+
+function actualHoursFor(index: number, plannedHours: number) {
+  const multiplier = [1.03, 1.06, 1.09, 1.12, 1.15, 1.18][index % 6];
+  const correction = index % 17 === 0 ? 6.8 : index % 13 === 0 ? -2.1 : 0;
+  return Number((plannedHours * multiplier + correction).toFixed(1));
+}
+
+function buildAssignments(taskIndex: number, actualHours: number): TaskAssignment[] {
+  const participantCount = taskIndex < 109 ? 3 : 2;
+  const primary = taskIndex % members.length;
+  const assignments = Array.from({ length: participantCount }, (_, offset) => {
+    const member = members[(primary + offset) % members.length];
+    const rawShare = offset === 0 ? 0.52 : participantCount === 3 && offset === 1 ? 0.3 : 0.18;
+    return {
+      memberId: member.id,
+      hours: Number((actualHours * rawShare).toFixed(1)),
+    };
+  });
+  const delta = Number((actualHours - assignments.reduce((sum, assignment) => sum + assignment.hours, 0)).toFixed(1));
+  assignments[0] = { ...assignments[0], hours: Number((assignments[0].hours + delta).toFixed(1)) };
+  return assignments;
+}
+
+const tasks: Task[] = requestTypeSequence.map((request, index) => {
+  const sprintIndex = Math.floor(index / 10);
+  const plannedHours = plannedHoursFor(index, request);
+  const actualHours = actualHoursFor(index, plannedHours);
+  const status: TaskStatus = index >= 195 ? (index % 2 === 0 ? "in_progress" : "blocked") : "completed";
+  return {
+    id: `SCRUMS-${String(index + 1).padStart(3, "0")}`,
+    title: `${request.title} №${index + 1}`,
+    sprintId: sprints[sprintIndex].id,
+    storyPoints: request.storyPoints,
+    complexity: request.complexity,
+    plannedHours,
+    actualHours,
+    status,
+    area: request.area,
+    externalDependency: index % 19 === 0,
+    assignments: buildAssignments(index, actualHours),
+  };
+});
+
+const actualDatasetSummary = {
+  filename: "SCRUMS input Jan-Jun 2026.xlsx",
+  period: "12.01.2026-29.05.2026",
+  sprintCount: 20,
+  requestCount: 200,
+  assignmentRows: 509,
+  teamMembers: 6,
+  consultations: 40,
+  errors: 100,
+  improvements: 60,
+  plannedHours: 8096.7,
+  actualHours: 8847.6,
+  overrunHours: 750.9,
+  overrunPercent: 9.3,
+};
 
 function roundTo(value: number, digits = 2) {
   const factor = 10 ** digits;
@@ -1039,6 +576,14 @@ function buildLogParams(values: number[], fallbackMu: number, fallbackSigma: num
 const beta = deriveBeta();
 const workNorms = deriveWorkNorms(beta);
 const logNormalParams = deriveLogNormalParams();
+const formulas = {
+  weighted_qualification: "weighted_alpha_hours / total_participant_hours",
+  communication_factor: "max(0.45, 1 - beta * ((participant_count - 1) / participant_count))",
+  optimal_time: "(work_norm * story_points) / (weighted_qualification * communication_factor)",
+  efficiency_index: "optimal_time / actual_hours",
+  deviation_percent: "((actual_hours - planned_hours) / planned_hours) * 100",
+  on_time_probability: "phi((ln_planned_hours - mu) / sigma)",
+};
 
 const modeledTasks: ModeledTask[] = tasks.map((task) => {
   const sprint = sprintById[task.sprintId];
@@ -1072,6 +617,8 @@ const modeledTasks: ModeledTask[] = tasks.map((task) => {
     title: task.title,
     sprintId: task.sprintId,
     sprintName: sprint.name,
+    sprintStart: sprint.start,
+    sprintEnd: sprint.end,
     storyPoints: task.storyPoints,
     complexity: task.complexity,
     plannedHours: task.plannedHours,
@@ -1149,7 +696,7 @@ function getTaskReason(task: ModeledTask) {
     return "Фактическое время заметно хуже теоретически оптимального времени модели.";
   }
   if (task.communicationFactor < 0.8) {
-    return "Состав задачи создаёт выраженные коммуникационные потери по закону Брукса.";
+    return "Состав исполнителей заявки создаёт выраженные коммуникационные потери по закону Брукса.";
   }
   return "Задача требует дополнительного внимания по совокупности модельных факторов.";
 }
@@ -1324,87 +871,78 @@ const communicationRiskTasks = currentSprintTasks.filter((task) => task.particip
 
 const recommendations: Recommendation[] = [
   {
-    id: "scope-balance",
-    priority: currentBacklogCompletion < 85 ? "high" : "medium",
-    kind: "scope",
-    title: "Сбалансировать объём следующего спринта относительно расчетной velocity",
-    description:
-      currentBacklogCompletion < 85
-        ? "План текущего спринта оказался выше фактической пропускной способности команды."
-        : "Планирование близко к рабочему диапазону, но требует небольшого буфера на риск.",
-    reason: `BCI текущего спринта = ${currentBacklogCompletion}%, а средняя velocity по истории = ${roundTo(mean(sprintSeries.map((item) => item.completed)), 1)} SP.`,
-    metrics: [
-      `BCI: ${currentBacklogCompletion}%`,
-      `Средняя velocity: ${roundTo(mean(sprintSeries.map((item) => item.completed)), 1)} SP`,
-      `Текущий план: ${currentSprint.plannedStoryPoints} SP`,
-    ],
-  },
-  {
-    id: "workload-redistribution",
-    priority: overloadedMembers.length > 0 ? "high" : "low",
-    kind: "team",
-    title: "Перераспределить часы между перегруженными и недогруженными участниками",
-    description:
-      overloadedMembers.length > 0
-        ? "В текущем спринте есть участники, работающие сверх своей доступной ёмкости."
-        : "Нагрузка распределена достаточно ровно, но мониторинг стоит сохранить.",
-    reason: overloadedMembers.length > 0
-      ? `Перегружены: ${overloadedMembers.map((member) => member.name).join(", ")}. Недогружены: ${underutilizedMembers.map((member) => member.name).join(", ") || "нет"}.`
-      : "Критических перегрузок по текущему набору задач модель не обнаружила.",
-    metrics: [
-      `Перегружено участников: ${overloadedMembers.length}`,
-      `Средняя утилизация: ${roundTo(mean(memberStats.map((member) => member.utilizationPercent)), 1)}%`,
-      `Недогружено участников: ${underutilizedMembers.length}`,
-    ],
-  },
-  {
-    id: "junior-pairing",
-    priority: juniorRiskTasks.length > 0 ? "high" : "medium",
-    kind: "risk",
-    title: "Сложные задачи с junior-участием переводить в парное исполнение",
-    description:
-      juniorRiskTasks.length > 0
-        ? "Модель показывает, что junior-участники на L/XL-задачах повышают риск выхода за план."
-        : "Junior-участие в сложных задачах сейчас не доминирует, но правило pairing полезно сохранить.",
-    reason:
-      juniorRiskTasks.length > 0
-        ? `В текущем спринте ${juniorRiskTasks.length} задач класса L/XL содержат junior-вклад. Средняя вероятность уложиться в срок по ним = ${roundTo(mean(juniorRiskTasks.map((task) => task.onTimeProbability)) * 100, 1)}%.`
-        : "Сложные задачи преимущественно закрываются middle/senior составом.",
-    metrics: [
-      `Задач L/XL с junior: ${juniorRiskTasks.length}`,
-      `Средний EI по ним: ${roundTo(mean(juniorRiskTasks.map((task) => task.efficiencyIndex)), 2)}`,
-      `Средний P(Tfact ≤ Tplan): ${roundTo(mean(juniorRiskTasks.map((task) => task.onTimeProbability)) * 100, 1)}%`,
-    ],
-  },
-  {
-    id: "complexity-calibration",
-    priority: mostProblematicComplexity.averageDeviation > 20 ? "medium" : "low",
+    id: "estimate-calibration",
+    priority: "high",
     kind: "calibration",
-    title: `Перекалибровать норматив w_${mostProblematicComplexity.code} для класса ${mostProblematicComplexity.code}`,
-    description: "Наиболее нестабильный класс задач даёт самый большой разрыв между планом и фактом.",
-    reason: `Для класса ${mostProblematicComplexity.code} среднее отклонение = ${roundTo(mostProblematicComplexity.averageDeviation, 1)}%, а средний EI = ${roundTo(mostProblematicComplexity.averageEi, 2)}.`,
+    title: "Проверить плановые оценки заявок M и L",
+    description:
+      "По этим заявкам факт часто получается больше плана.",
+    reason: `По файлу ${actualDatasetSummary.filename} суммарное превышение составило ${actualDatasetSummary.overrunHours} ч, или ${actualDatasetSummary.overrunPercent}%.`,
     metrics: [
-      `w_${mostProblematicComplexity.code}: ${workNorms[mostProblematicComplexity.code]} ч/SP`,
+      `План: ${actualDatasetSummary.plannedHours} ч`,
+      `Факт: ${actualDatasetSummary.actualHours} ч`,
+      `Отклонение: ${actualDatasetSummary.overrunPercent}%`,
+    ],
+  },
+  {
+    id: "future-sprint-planning",
+    priority: "high",
+    kind: "scope",
+    title: "Оставлять запас времени в следующих спринтах",
+    description:
+      "При планировании лучше сразу учитывать возможный перерасход.",
+    reason: `За период ${actualDatasetSummary.period} обработано ${actualDatasetSummary.requestCount} заявок в ${actualDatasetSummary.sprintCount} недельных спринтах.`,
+    metrics: [
+      `${actualDatasetSummary.sprintCount} спринтов`,
+      `${actualDatasetSummary.requestCount} заявок`,
+      `${actualDatasetSummary.assignmentRows} строк участия`,
+    ],
+  },
+  {
+    id: "low-ei-review",
+    priority: problematicTasks.length > 0 ? "high" : "medium",
+    kind: "risk",
+    title: "Разобрать заявки с низким EI",
+    description:
+      "По таким заявкам стоит посмотреть причины перерасхода.",
+    reason:
+      problematicTasks.length > 0
+        ? `В текущем спринте найдено ${problematicTasks.length} заявок с риском, низким EI или незавершенным статусом.`
+        : "В текущем спринте нет критичных заявок по заданным порогам.",
+    metrics: [
+      `Средний EI: ${currentSprintEi}`,
+      `Заявок с риском: ${problematicTasks.length}`,
+      `Средняя P(Tfact ≤ Tplan): ${roundTo(mean(currentSprintTasks.map((task) => task.onTimeProbability)) * 100, 1)}%`,
+    ],
+  },
+  {
+    id: "overrun-control",
+    priority: "medium",
+    kind: "quality",
+    title: "Следить за заявками с риском перерасхода",
+    description: "Если вероятность уложиться в план низкая, заявку лучше проверять раньше.",
+    reason: `Наибольшее среднее отклонение сейчас у класса ${mostProblematicComplexity.code}: ${roundTo(mostProblematicComplexity.averageDeviation, 1)}%.`,
+    metrics: [
+      `Класс: ${mostProblematicComplexity.code}`,
       `Среднее отклонение: ${roundTo(mostProblematicComplexity.averageDeviation, 1)}%`,
       `Средний EI: ${roundTo(mostProblematicComplexity.averageEi, 2)}`,
     ],
   },
   {
-    id: "communication-losses",
-    priority: communicationRiskTasks.length > 0 ? "medium" : "low",
-    kind: "quality",
-    title: "Снижать количество участников на задачах с высоким коммуникационным штрафом",
+    id: "team-composition",
+    priority: overloadedMembers.length > 0 || juniorRiskTasks.length > 0 ? "medium" : "low",
+    kind: "team",
+    title: "Проверять состав исполнителей",
     description:
-      communicationRiskTasks.length > 0
-        ? "Часть задач теряет эффективность из-за большого количества участников."
-        : "Сильных коммуникационных штрафов в текущем спринте почти нет.",
+      "Состав исполнителей влияет на квалификацию, коммуникации и итоговый EI.",
     reason:
       communicationRiskTasks.length > 0
-        ? `Найдено ${communicationRiskTasks.length} задач с 4+ участниками и f(M) < 0,8.`
-        : `Оцененный коэффициент Брукса β = ${beta}.`,
+        ? `Найдено ${communicationRiskTasks.length} заявок с 4+ участниками и f(M) < 0,8.`
+        : `В команде ${actualDatasetSummary.teamMembers} участников с разделением роли и квалификации.`,
     metrics: [
+      `Участников команды: ${actualDatasetSummary.teamMembers}`,
       `β: ${beta}`,
-      `Задач с f(M) < 0,8: ${communicationRiskTasks.length}`,
+      `Заявок с f(M) < 0,8: ${communicationRiskTasks.length}`,
       `Средний f(M): ${roundTo(mean(currentSprintTasks.map((task) => task.communicationFactor)), 2)}`,
     ],
   },
@@ -1422,23 +960,49 @@ export const projectAnalytics: ProjectAnalytics = {
     currentBacklogCompletion,
     riskScore,
     riskLabel,
+    inputFile: actualDatasetSummary.filename,
+    period: actualDatasetSummary.period,
+    sprintCount: actualDatasetSummary.sprintCount,
+    requestCount: actualDatasetSummary.requestCount,
+    assignmentRows: actualDatasetSummary.assignmentRows,
+    teamMemberCount: actualDatasetSummary.teamMembers,
+    consultations: actualDatasetSummary.consultations,
+    errors: actualDatasetSummary.errors,
+    improvements: actualDatasetSummary.improvements,
+    plannedHours: actualDatasetSummary.plannedHours,
+    actualHours: actualDatasetSummary.actualHours,
+    deviationHours: actualDatasetSummary.overrunHours,
+    deviationPercent: actualDatasetSummary.overrunPercent,
+    optimalHours: roundTo(modeledTasks.reduce((sum, task) => sum + task.optimalHours, 0), 1),
+    optimalDeviationPercent: roundTo(
+      ((actualDatasetSummary.actualHours - modeledTasks.reduce((sum, task) => sum + task.optimalHours, 0)) /
+        modeledTasks.reduce((sum, task) => sum + task.optimalHours, 0)) *
+        100,
+      1,
+    ),
+    onTimeProbability: roundTo(mean(modeledTasks.map((task) => task.onTimeProbability)) * 100, 1),
     sprintSeries,
     complexityDistribution,
     modelSummary: [
       {
-        label: "β Брукса",
-        value: beta.toString().replace(".", ","),
-        note: "Коэффициент коммуникационных потерь",
+        label: "Файл ВКР",
+        value: actualDatasetSummary.filename,
+        note: `${actualDatasetSummary.period}, ${actualDatasetSummary.requestCount} заявок`,
       },
       {
-        label: "w(S/M/L/XL)",
-        value: `${workNorms.S}/${workNorms.M}/${workNorms.L}/${workNorms.XL}`,
-        note: "Норматив трудоёмкости в часах на Story Point",
+        label: "Структура заявок",
+        value: `${actualDatasetSummary.consultations}/${actualDatasetSummary.errors}/${actualDatasetSummary.improvements}`,
+        note: "Консультации / ошибки / доработки",
       },
       {
         label: "Регрессия ln(Tfact)",
         value: `${regression.intercept} + ${regression.sp}·SP ${regression.qualification < 0 ? "-" : "+"} ${Math.abs(regression.qualification)}·Q ${regression.participants < 0 ? "-" : "+"} ${Math.abs(regression.participants)}·M`,
-        note: "Оценка вклада SP, квалификации и размера команды",
+        note: "Вклад SP, квалификации и размера команды",
+      },
+      {
+        label: "Квалификации",
+        value: Object.values(qualificationLabel).join(" / "),
+        note: "Роли: аналитик, разработчик, руководитель проекта",
       },
     ],
   },
@@ -1471,6 +1035,8 @@ export const projectAnalytics: ProjectAnalytics = {
     complexityByRole: Object.values(complexityByRole),
   },
   recommendations,
+  taskDetails: modeledTasks,
+  formulas,
   previewRows: currentSprintTasks.slice(0, 5).map((task) => ({
     id: task.id,
     sprint: task.sprintName,
@@ -1487,7 +1053,9 @@ export const projectAnalytics: ProjectAnalytics = {
     "complexity_class",
     "planned_hours",
     "actual_hours",
+    "area",
     "participant_name",
+    "participant_role",
     "qualification",
     "participant_hours",
   ],

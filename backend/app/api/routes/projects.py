@@ -59,7 +59,7 @@ def download_import_template() -> FileResponse:
         )
     return FileResponse(
         TEMPLATE_FILE_PATH,
-        filename="scrummetrics_import_template.xlsx",
+        filename="SCRUMS input template.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 

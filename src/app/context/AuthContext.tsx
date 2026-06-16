@@ -13,7 +13,7 @@ type AuthContextValue = {
   logout: () => void;
 };
 
-const STORAGE_KEY = "scrum-metrics-authenticated";
+const STORAGE_KEY = "scrums-authenticated";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 

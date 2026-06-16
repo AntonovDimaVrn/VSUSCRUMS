@@ -26,36 +26,36 @@ export const formulaDefinitions: Record<FormulaKey, FormulaDefinition> = {
     key: "weighted_qualification",
     label: "Взвешенная квалификация",
     symbol: "Q_i",
-    description: "Показывает квалификационный потенциал команды задачи с учётом часов участия.",
+    description: "Показывает среднюю квалификацию исполнителей с учётом часов участия.",
     scope: "task",
-    helperText: "Чаще всего меняют веса или логику нормализации по суммарным часам.",
+    helperText: "Обычно здесь меняются веса квалификации.",
     variableTokens: ["weighted_alpha_hours", "total_participant_hours"],
   },
   communication_factor: {
     key: "communication_factor",
     label: "Коммуникационный множитель",
     symbol: "f(M_i)",
-    description: "Снижает эффективность при росте количества участников по закону Брукса.",
+    description: "Учитывает потери при большом количестве участников.",
     scope: "task",
-    helperText: "Обычно здесь управляют жёсткостью штрафа через beta и нижнюю границу.",
+    helperText: "Здесь меняется beta и минимальное значение множителя.",
     variableTokens: ["beta", "participant_count"],
   },
   optimal_time: {
     key: "optimal_time",
     label: "Теоретически оптимальное время",
     symbol: "Topt_i",
-    description: "Ожидаемое модельное время задачи с учётом SP, сложности, квалификации и коммуникаций.",
+    description: "Расчётное время заявки с учётом SP, сложности и состава исполнителей.",
     scope: "task",
-    helperText: "Это центральная формула модели: любые правки здесь сильнее всего влияют на EI_i.",
+    helperText: "Эта формула сильнее всего влияет на EI_i.",
     variableTokens: ["work_norm", "story_points", "weighted_qualification", "communication_factor"],
   },
   efficiency_index: {
     key: "efficiency_index",
-    label: "Индекс эффективности задачи",
+    label: "Индекс эффективности заявки",
     symbol: "EI_i",
-    description: "Сравнивает фактическое время задачи с теоретически оптимальным временем.",
+    description: "Сравнивает фактическое время заявки с теоретически оптимальным временем.",
     scope: "task",
-    helperText: "Если хочешь усилить штраф за затяжные задачи, начинай изменения отсюда.",
+    helperText: "Здесь можно менять оценку затяжных заявок.",
     variableTokens: ["optimal_time", "actual_hours"],
   },
   deviation_percent: {
@@ -64,7 +64,7 @@ export const formulaDefinitions: Record<FormulaKey, FormulaDefinition> = {
     symbol: "δ_i",
     description: "Процентное отклонение фактического времени от планового.",
     scope: "task",
-    helperText: "Формула обычно остаётся простой, но можно вводить дополнительные пороги или нормализацию.",
+    helperText: "Обычно формула остаётся простой.",
     variableTokens: ["actual_hours", "planned_hours"],
   },
   on_time_probability: {
@@ -73,7 +73,7 @@ export const formulaDefinitions: Record<FormulaKey, FormulaDefinition> = {
     symbol: "P(Tfact ≤ Tplan)",
     description: "Оценивает вероятность успеть по логнормальной модели времени выполнения.",
     scope: "task",
-    helperText: "Здесь чаще всего меняют вид вероятностной функции или параметры распределения.",
+    helperText: "Здесь используются параметры распределения.",
     variableTokens: ["ln_planned_hours", "mu", "sigma"],
   },
   backlog_completion_index: {
@@ -82,16 +82,16 @@ export const formulaDefinitions: Record<FormulaKey, FormulaDefinition> = {
     symbol: "BCI_sprint",
     description: "Показывает, насколько реалистично спланирован объём спринта.",
     scope: "sprint",
-    helperText: "Preview для этой формулы собирается по задачам спринта выбранной задачи.",
+    helperText: "Проверка берёт заявки из спринта выбранной заявки.",
     variableTokens: ["completed_story_points", "planned_story_points"],
   },
   sprint_efficiency_index: {
     key: "sprint_efficiency_index",
     label: "Эффективность спринта",
     symbol: "EI_sprint",
-    description: "Геометрическое среднее индексов эффективности завершённых задач спринта.",
+    description: "Геометрическое среднее индексов эффективности завершённых заявок спринта.",
     scope: "sprint",
-    helperText: "Preview для этой формулы использует все завершённые задачи того же спринта.",
+    helperText: "Проверка использует завершённые заявки того же спринта.",
     variableTokens: ["task_efficiency_indexes"],
   },
 };
@@ -100,7 +100,7 @@ export const formulaVariableDefinitions: Record<string, FormulaVariableDefinitio
   actual_hours: {
     token: "actual_hours",
     label: "Фактические часы",
-    description: "Tfact_i. Сколько часов задача реально заняла по данным Excel.",
+    description: "Tfact_i. Сколько часов заявка реально заняла по данным Excel.",
     scope: "task",
   },
   beta: {
@@ -112,13 +112,13 @@ export const formulaVariableDefinitions: Record<string, FormulaVariableDefinitio
   communication_factor: {
     token: "communication_factor",
     label: "Коммуникационный множитель",
-    description: "Результат текущей формулы f(M_i) для выбранной задачи.",
+    description: "Результат текущей формулы f(M_i) для выбранной заявки.",
     scope: "task",
   },
   completed_story_points: {
     token: "completed_story_points",
     label: "Завершённые SP спринта",
-    description: "Сумма Story Points завершённых задач внутри спринта выбранной задачи.",
+    description: "Сумма Story Points завершённых заявок внутри спринта выбранной заявки.",
     scope: "sprint",
   },
   ln_planned_hours: {
@@ -130,31 +130,31 @@ export const formulaVariableDefinitions: Record<string, FormulaVariableDefinitio
   mu: {
     token: "mu",
     label: "mu распределения",
-    description: "Параметр среднего для ln(Tfact) в логнормальной модели по классу сложности задачи.",
+    description: "Параметр среднего для ln(Tfact) в логнормальной модели по классу сложности заявки.",
     scope: "task",
   },
   optimal_time: {
     token: "optimal_time",
     label: "Теоретически оптимальное время",
-    description: "Результат текущей формулы Topt_i для выбранной задачи.",
+    description: "Результат текущей формулы Topt_i для выбранной заявки.",
     scope: "task",
   },
   participant_count: {
     token: "participant_count",
-    label: "Количество участников",
-    description: "M_i. Сколько человек участвует в задаче.",
+    label: "Количество исполнителей",
+    description: "M_i. Сколько человек участвует в заявке.",
     scope: "task",
   },
   planned_hours: {
     token: "planned_hours",
     label: "Плановые часы",
-    description: "Tplan_i. Плановое время выполнения задачи из Excel.",
+    description: "Tplan_i. Плановое время выполнения заявки из Excel.",
     scope: "task",
   },
   planned_story_points: {
     token: "planned_story_points",
     label: "Запланированные SP спринта",
-    description: "Сумма Story Points всех задач спринта выбранной задачи.",
+    description: "Сумма Story Points всех заявок спринта выбранной заявки.",
     scope: "sprint",
   },
   sigma: {
@@ -166,19 +166,19 @@ export const formulaVariableDefinitions: Record<string, FormulaVariableDefinitio
   story_points: {
     token: "story_points",
     label: "Story Points",
-    description: "SP_i. Оценка сложности задачи в Story Points.",
+    description: "SP_i. Оценка сложности заявки в Story Points.",
     scope: "task",
   },
   task_efficiency_indexes: {
     token: "task_efficiency_indexes",
-    label: "Массив EI задач спринта",
-    description: "Список EI_i завершённых задач того же спринта. Используется для EI_sprint.",
+    label: "Массив EI заявок спринта",
+    description: "Список EI_i завершённых заявок того же спринта. Используется для EI_sprint.",
     scope: "sprint",
   },
   total_participant_hours: {
     token: "total_participant_hours",
     label: "Суммарные часы участников",
-    description: "Σ n_ij. Общий объём часов всех участников выбранной задачи.",
+    description: "Σ n_ij. Общий объём часов всех участников выбранной заявки.",
     scope: "task",
   },
   weighted_alpha_hours: {
@@ -190,7 +190,7 @@ export const formulaVariableDefinitions: Record<string, FormulaVariableDefinitio
   weighted_qualification: {
     token: "weighted_qualification",
     label: "Взвешенная квалификация",
-    description: "Результат текущей формулы Q_i для выбранной задачи.",
+    description: "Результат текущей формулы Q_i для выбранной заявки.",
     scope: "task",
   },
   work_norm: {
@@ -291,7 +291,7 @@ export function evaluateFormulaPreview(
   } catch (error) {
     return {
       result: null,
-      error: error instanceof Error ? error.message : "Не удалось вычислить превью формулы.",
+      error: error instanceof Error ? error.message : "Не удалось проверить формулу.",
     };
   }
 }

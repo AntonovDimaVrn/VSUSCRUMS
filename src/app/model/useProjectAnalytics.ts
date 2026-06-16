@@ -55,7 +55,7 @@ export function useProjectAnalytics() {
           setError(
             nextError instanceof Error
               ? nextError.message
-              : "Не удалось загрузить аналитику проекта с backend.",
+              : "Не удалось загрузить аналитику проекта с сервера.",
           );
         }
       } finally {
